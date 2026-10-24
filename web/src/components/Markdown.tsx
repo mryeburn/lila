@@ -22,20 +22,30 @@ function loadMermaid() {
 	return mermaidPromise;
 }
 
-function MermaidDiagram({ code }: { code: string }) {
+function MermaidDiagram({ code, onBroken }: { code: string; onBroken?: () => void }) {
 	const id = `m${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
 	const [svg, setSvg] = useState<string | null>(null);
 	const [failed, setFailed] = useState(false);
 	useEffect(() => {
 		let cancelled = false;
 		loadMermaid()
-			.then((mermaid) => mermaid.render(id, code))
+			// parse() first: a failed render() leaves an error graphic on the page.
+			.then(async (mermaid) => {
+				await mermaid.parse(code);
+				return mermaid.render(id, code);
+			})
 			.then(({ svg }) => !cancelled && setSvg(svg))
-			.catch(() => !cancelled && setFailed(true));
+			.catch(() => {
+				if (cancelled) return;
+				setFailed(true);
+				onBroken?.();
+			});
 		return () => {
 			cancelled = true;
 		};
-	}, [code, id]);
+	}, [code, id, onBroken]);
+	// The app replaces its own broken pictures, so there's nothing to show.
+	if (failed && onBroken) return null;
 	if (failed) {
 		return (
 			<details className="diagram-error">
@@ -58,7 +68,7 @@ function SvgPicture({ code }: { code: string }) {
 // searches (server/images.ts), so an invented link can never show up.
 const IMAGE_HOSTS = ["upload.wikimedia.org", "openi.nlm.nih.gov"];
 
-function Photo({ src, alt, title }: { src?: string; alt?: string; title?: string }) {
+function Photo({ src, alt, title, onBroken }: { src?: string; alt?: string; title?: string; onBroken?: () => void }) {
 	let ok = false;
 	try {
 		const u = new URL(src ?? "");
@@ -72,7 +82,16 @@ function Photo({ src, alt, title }: { src?: string; alt?: string; title?: string
 	return (
 		<span className="photo">
 			<a href={src} target="_blank" rel="noreferrer noopener" title="Open full size">
-				<img src={src} alt={alt ?? ""} loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />
+				<img
+					src={src}
+					alt={alt ?? ""}
+					loading="lazy"
+					referrerPolicy="no-referrer"
+					onError={() => {
+						setFailed(true);
+						onBroken?.();
+					}}
+				/>
 			</a>
 			{alt && <span className="photo-caption">{alt}</span>}
 			{title && <span className="photo-credit">{title}</span>}
@@ -80,7 +99,7 @@ function Photo({ src, alt, title }: { src?: string; alt?: string; title?: string
 	);
 }
 
-function makeComponents(streaming: boolean, inline: boolean): Components {
+function makeComponents(streaming: boolean, inline: boolean, onBroken?: () => void): Components {
 	return {
 		...(inline ? { p: ({ children }) => <span>{children}</span> } : {}),
 		a: ({ href, children }) => (
@@ -88,7 +107,9 @@ function makeComponents(streaming: boolean, inline: boolean): Components {
 				{children}
 			</a>
 		),
-		img: ({ src, alt, title }) => <Photo src={typeof src === "string" ? src : undefined} alt={alt} title={title} />,
+		img: ({ src, alt, title }) => (
+			<Photo src={typeof src === "string" ? src : undefined} alt={alt} title={title} onBroken={onBroken} />
+		),
 		pre: ({ children }) => <>{children}</>,
 		code: ({ className, children }) => {
 			const lang = /language-(\w+)/.exec(className ?? "")?.[1];
@@ -96,7 +117,7 @@ function makeComponents(streaming: boolean, inline: boolean): Components {
 			if (lang === "mermaid" || lang === "svg") {
 				// Half-written diagrams can't be drawn; wait for the message to finish.
 				if (streaming) return <div className="diagram diagram-loading">Drawing diagram…</div>;
-				return lang === "mermaid" ? <MermaidDiagram code={code} /> : <SvgPicture code={code} />;
+				return lang === "mermaid" ? <MermaidDiagram code={code} onBroken={onBroken} /> : <SvgPicture code={code} />;
 			}
 			if (!lang && !code.includes("\n")) return <code className="inline-code">{children}</code>;
 			return (
@@ -127,16 +148,19 @@ export const Markdown = memo(function Markdown({
 	text,
 	streaming = false,
 	inline = false,
+	onBroken,
 }: {
 	text: string;
 	streaming?: boolean;
 	inline?: boolean;
+	/** Called when a diagram or photo can't be shown; it is then hidden. */
+	onBroken?: () => void;
 }) {
 	return (
 		<ReactMarkdown
 			remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: true }]]}
 			rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: false }]]}
-			components={makeComponents(streaming, inline)}
+			components={makeComponents(streaming, inline, onBroken)}
 		>
 			{normalizeMath(text)}
 		</ReactMarkdown>

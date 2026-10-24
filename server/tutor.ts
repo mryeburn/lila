@@ -10,6 +10,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
 import { type AppSettings, loadSettings, SESSIONS_DIR, saveSettings, WORKSPACE_DIR } from "./config.ts";
+import { illustrate } from "./illustrator.ts";
 import { createImageTool } from "./images.ts";
 import { asMessage, type Material, parseMessage } from "./materials.ts";
 import { BASE_PROMPT, buildTeachingPrompt } from "./prompt.ts";
@@ -30,6 +31,14 @@ const VISUAL = /```(mermaid|svg)|!\[[^\]]*\]\(https:\/\//;
 // Hidden notes from the app to the tutor, appended to the learner's messages.
 const APP_NOTE = /\s*<app-note>[\s\S]*?<\/app-note>\s*$/;
 
+// Teaching text at least this long, with no picture, gets one from the app.
+const MIN_SECTION_LENGTH = 400;
+
+/** Identifies one part of a tutor message (the text between its cards). */
+function partId(msg: any, part: number): string {
+	return `m${msg.timestamp}-${part}`;
+}
+
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
 type Thinking = (typeof THINKING_LEVELS)[number];
 
@@ -40,6 +49,64 @@ function textOf(content: unknown): string {
 		.filter((c: any) => c?.type === "text" && typeof c.text === "string")
 		.map((c: any) => c.text)
 		.join("");
+}
+
+/** Pictures the app added to one lesson, kept in a file beside the lesson. */
+class LessonPictures {
+	readonly byId = new Map<string, string[]>();
+	/** Parts of the lesson a picture is being made for right now. */
+	readonly drawing = new Set<string>();
+	/** Parts whose broken diagram was already replaced once. */
+	readonly retried = new Set<string>();
+
+	constructor(private readonly file: string | undefined) {
+		try {
+			const saved = file && fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
+			for (const [id, list] of Object.entries(saved)) {
+				if (Array.isArray(list)) this.byId.set(id, list.filter((p) => typeof p === "string"));
+			}
+		} catch {
+			// A damaged file only loses the pictures.
+		}
+	}
+
+	add(id: string, markdown: string): void {
+		this.byId.set(id, [...(this.byId.get(id) ?? []), markdown]);
+		this.save();
+	}
+
+	remove(id: string, picture: string): void {
+		const list = this.byId.get(id);
+		const index = list?.indexOf(picture) ?? -1;
+		if (!list || index < 0) return;
+		list.splice(index, 1);
+		if (list.length === 0) this.byId.delete(id);
+		this.save();
+	}
+
+	private save(): void {
+		if (!this.file) return;
+		try {
+			fs.writeFileSync(this.file, JSON.stringify(Object.fromEntries(this.byId)));
+		} catch {
+			// Not fatal: the pictures just won't be there next time.
+		}
+	}
+}
+
+/** What an answered quiz was about, for making a picture of it. */
+function quizContent(result: any): string {
+	const options: any[] = result?.options ?? [];
+	const correct = options.filter((o) => (result?.correctIndices ?? []).includes(o.index)).map((o) => o.label);
+	return [
+		`Question: ${result?.question ?? ""}`,
+		result?.context ? `Context shown with the question: ${result.context}` : "",
+		`Options: ${options.map((o) => o.label).join(" / ")}`,
+		`Correct answer: ${correct.join(", ")}`,
+		result?.explanation ? `Explanation: ${result.explanation}` : "",
+	]
+		.filter(Boolean)
+		.join("\n");
 }
 
 /**
@@ -56,6 +123,9 @@ export class Tutor implements InteractionBroker {
 	private busy = false;
 	/** Results of answered cards whose tool-result message pi hasn't added yet. */
 	private finishedResults = new Map<string, unknown>();
+	private pictures = new LessonPictures(undefined);
+	/** Every other quiz gets a picture when it has none of its own. */
+	private lastQuizHadPicture = false;
 
 	constructor(
 		readonly runtime: ModelRuntime,
@@ -78,6 +148,7 @@ export class Tutor implements InteractionBroker {
 			signal?.addEventListener("abort", onAbort);
 			this.pending.set(interaction.id, { interaction, resolve: finish });
 			this.broadcast({ type: "interaction", interaction });
+			if (interaction.kind === "graded") this.autoIllustrateQuiz(interaction.id, interaction.result);
 		});
 	}
 
@@ -126,11 +197,13 @@ export class Tutor implements InteractionBroker {
 				else if (text) items.push({ kind: "user", text });
 			} else if (msg.role === "assistant") {
 				let text = "";
+				let part = 0;
 				for (const block of msg.content ?? []) {
 					if (block.type === "text") text += block.text;
 					if (block.type === "toolCall" && TOOL_NAMES.includes(block.name)) {
-						if (text.trim()) items.push({ kind: "assistant", text });
+						if (text.trim()) items.push({ kind: "assistant", id: partId(msg, part), text });
 						text = "";
+						part++;
 						const item = {
 							kind: block.name === "quiz" ? ("quiz" as const) : ("ask" as const),
 							id: block.id as string,
@@ -142,7 +215,7 @@ export class Tutor implements InteractionBroker {
 						items.push(item);
 					}
 				}
-				if (text.trim()) items.push({ kind: "assistant", text });
+				if (text.trim()) items.push({ kind: "assistant", id: partId(msg, part), text });
 				if (msg.stopReason === "error" && msg.errorMessage) items.push({ kind: "error", text: msg.errorMessage });
 			} else if (msg.role === "toolResult") {
 				const item = byToolCall.get(msg.toolCallId);
@@ -153,6 +226,12 @@ export class Tutor implements InteractionBroker {
 		for (const [id, result] of this.finishedResults) {
 			const item = byToolCall.get(id);
 			if (item && !item.result) item.result = result as any;
+		}
+		for (const item of items) {
+			if (item.kind !== "assistant" && item.kind !== "quiz") continue;
+			const pictures = this.pictures.byId.get(item.id);
+			if (pictures) item.pictures = pictures;
+			if (this.pictures.drawing.has(item.id)) item.drawing = true;
 		}
 		return items;
 	}
@@ -194,6 +273,7 @@ export class Tutor implements InteractionBroker {
 		if (this.busy && this.session) await this.session.abort();
 		this.dispose();
 		this.finishedResults.clear();
+		this.lastQuizHadPicture = false;
 		this.lastError = undefined;
 
 		const model = await this.pickModel();
@@ -233,6 +313,7 @@ export class Tutor implements InteractionBroker {
 			],
 		});
 		this.session = session;
+		this.pictures = new LessonPictures(session.sessionFile?.replace(/\.jsonl$/, ".pictures.json"));
 		this.unsubscribe = session.subscribe((event) => this.onEvent(event));
 		this.broadcast({ type: "transcript", items: this.transcript() });
 		this.broadcast({ type: "streaming", text: null });
@@ -322,7 +403,7 @@ export class Tutor implements InteractionBroker {
 			}
 			// Replies that only searched for an image don't count either way.
 			if (!text.trim() && !card) continue;
-			if (VISUAL.test(text)) return count;
+			if (VISUAL.test(text) || this.hasPicture(msg)) return count;
 			count++;
 		}
 		return count;
@@ -345,6 +426,105 @@ export class Tutor implements InteractionBroker {
 				return note ? { ...result, content: [...result.content, { type: "text" as const, text: note }] } : result;
 			},
 		};
+	}
+
+	private hasPicture(msg: any): boolean {
+		const prefix = `m${msg.timestamp}-`;
+		for (const id of [...this.pictures.byId.keys(), ...this.pictures.drawing]) {
+			if (id.startsWith(prefix)) return true;
+		}
+		return (msg.content ?? []).some((b: any) => b.type === "toolCall" && this.pictures.byId.has(b.id));
+	}
+
+	// ── Pictures made by the app ─────────────────────────────────────────────
+	// Prompting alone didn't get the tutor to draw, so the app makes sure of it:
+	// a long stretch of teaching, and every other answered quiz, that arrives
+	// without a picture gets one from a separate request (server/illustrator.ts).
+	// The learner can also ask for a picture under any tutor message.
+
+	/** A finished tutor message: illustrate its long teaching parts that have no picture. */
+	private autoIllustrateMessage(msg: any): void {
+		if (msg.stopReason === "error" || msg.stopReason === "aborted") return;
+		let text = "";
+		let part = 0;
+		const parts: Array<[string, string]> = [];
+		for (const block of msg.content ?? []) {
+			if (block.type === "text") text += block.text;
+			if (block.type === "toolCall" && TOOL_NAMES.includes(block.name)) {
+				parts.push([partId(msg, part++), text]);
+				text = "";
+			}
+		}
+		parts.push([partId(msg, part), text]);
+		for (const [id, partText] of parts) {
+			if (partText.trim().length >= MIN_SECTION_LENGTH && !VISUAL.test(partText) && !this.pictures.byId.has(id)) {
+				this.draw(id, partText, "section", false);
+			}
+		}
+	}
+
+	private autoIllustrateQuiz(id: string, result: any): void {
+		const own = VISUAL.test(`${result?.context ?? ""}\n${result?.explanation ?? ""}`);
+		if (own || this.lastQuizHadPicture || this.pictures.byId.has(id)) {
+			this.lastQuizHadPicture = own;
+			return;
+		}
+		this.lastQuizHadPicture = true;
+		this.draw(id, quizContent(result), "explanation", false);
+	}
+
+	/** The learner pressed "Show me a picture". */
+	requestPicture(id: string): void {
+		const part = this.partFor(id);
+		if (part) this.draw(id, part.content, part.purpose, true);
+	}
+
+	/** The page couldn't draw a picture (a diagram with a syntax error, or a photo that won't load). */
+	pictureBroken(id: string, picture: string): void {
+		const pics = this.pictures;
+		pics.remove(id, picture);
+		const part = this.partFor(id);
+		if (part && !pics.retried.has(id) && !pics.byId.has(id)) {
+			pics.retried.add(id);
+			this.draw(id, part.content, part.purpose, true, true);
+		} else {
+			this.broadcast({ type: "transcript", items: this.transcript() });
+		}
+	}
+
+	private partFor(id: string): { content: string; purpose: "section" | "explanation" } | undefined {
+		for (const item of this.transcript()) {
+			if (item.kind === "assistant" && item.id === id) return { content: item.text, purpose: "section" };
+			if (item.kind === "quiz" && item.id === id) {
+				const result = item.result ?? (this.pending.get(id)?.interaction as any)?.result;
+				if (result?.status === "answered") return { content: quizContent(result), purpose: "explanation" };
+			}
+		}
+		return undefined;
+	}
+
+	private draw(id: string, content: string, purpose: "section" | "explanation", required: boolean, retry = false): void {
+		const session = this.session;
+		const pics = this.pictures;
+		if (!session?.model || pics.drawing.has(id)) return;
+		pics.drawing.add(id);
+		this.broadcast({ type: "transcript", items: this.transcript() });
+		void illustrate(this.runtime, session.model, {
+			topic: session.sessionName ?? "",
+			content,
+			purpose,
+			required,
+			shown: pics.byId.get(id),
+			retryAfterBroken: retry,
+		}).then((result) => {
+			pics.drawing.delete(id);
+			if (result.markdown) pics.add(id, result.markdown);
+			if (this.pictures !== pics) return;
+			if (!result.markdown && required) {
+				this.broadcast({ type: "error", message: "Pi Learn couldn't make a picture this time. Please try again." });
+			}
+			this.broadcast({ type: "transcript", items: this.transcript() });
+		});
 	}
 
 	async abort(): Promise<void> {
@@ -382,7 +562,7 @@ export class Tutor implements InteractionBroker {
 		for (const item of this.transcript()) {
 			if (item.kind === "user") lines.push(`> **You:** ${item.text.replace(/\n/g, "\n> ")}`, "");
 			else if (item.kind === "resource") lines.push(`> 📎 **Learning resource:** ${item.name}`, "");
-			else if (item.kind === "assistant") lines.push(item.text, "");
+			else if (item.kind === "assistant") lines.push(item.text, "", ...(item.pictures ?? []).flatMap((p) => [p, ""]));
 			else if (item.kind === "error") lines.push(`> ⚠️ ${item.text}`, "");
 			else {
 				const r = item.result as any;
@@ -398,6 +578,7 @@ export class Tutor implements InteractionBroker {
 				if (r?.note) lines.push("", `_Note: ${r.note}_`);
 				if (r?.explanation) lines.push("", r.explanation);
 				lines.push("");
+				if (item.kind === "quiz") for (const p of item.pictures ?? []) lines.push(p, "");
 			}
 		}
 		return lines.join("\n");
@@ -444,6 +625,9 @@ export class Tutor implements InteractionBroker {
 			}
 			// falls through
 			case "message_end":
+				if (event.type === "message_end" && (event as any).message?.role === "assistant") {
+					this.autoIllustrateMessage((event as any).message);
+				}
 				this.streamingText = null;
 				this.broadcast({ type: "streaming", text: null });
 				this.broadcast({ type: "transcript", items: this.transcript() });

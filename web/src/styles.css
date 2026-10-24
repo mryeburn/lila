@@ -1041,3 +1041,48 @@ button.option:not(:disabled):hover {
 		justify-content: flex-start;
 	}
 }
+
+/* Pictures the app adds under tutor messages and quiz answers. */
+.app-pictures {
+	margin-top: 4px;
+}
+.app-picture .diagram,
+.app-picture .photo {
+	margin: 8px 0;
+}
+.app-picture p {
+	margin: 4px 0 12px;
+	text-align: center;
+	color: var(--muted);
+	font-size: 14px;
+}
+.picture-button {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	margin: 6px 0 2px;
+	padding: 6px 12px;
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	background: var(--surface);
+	color: var(--text);
+	font-family: var(--ui);
+	font-size: 14px;
+	cursor: pointer;
+}
+.picture-button:hover {
+	border-color: var(--accent);
+}
+.picture-button.drawing {
+	color: var(--muted);
+	cursor: default;
+	animation: picture-pulse 1.4s ease-in-out infinite;
+}
+@keyframes picture-pulse {
+	50% {
+		opacity: 0.55;
+	}
+}
+.quiz-card .app-pictures {
+	margin-top: 12px;
+}

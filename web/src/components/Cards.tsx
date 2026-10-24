@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import type { AskAnswer, PendingInteraction, QuizAnswer } from "../../../server/protocol.ts";
 import { Markdown } from "./Markdown.tsx";
 
@@ -101,12 +101,15 @@ export function QuizResult({
 	details,
 	result,
 	onNext,
+	pictures,
 }: {
 	question: string;
 	details?: string;
 	result: any;
 	/** Set while the lesson waits for the learner to move on. */
 	onNext?: () => void;
+	/** Pictures the app added for the explanation. */
+	pictures?: ReactNode;
 }) {
 	const [sent, setSent] = useState(false);
 	if (result.status !== "answered") {
@@ -149,6 +152,7 @@ export function QuizResult({
 					<Markdown text={result.explanation} />
 				</div>
 			)}
+			{pictures}
 			{onNext && <p className="next-hint">Any questions about this? Type them below, or click Next question.</p>}
 			{onNext && (
 				<div className="card-actions">
