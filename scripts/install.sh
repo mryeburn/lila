@@ -1,12 +1,12 @@
 #!/bin/bash
-# One-step installer for Pi Learn on a Mac or a Chromebook (or other Linux).
+# One-step installer for LILA on a Mac or a Chromebook (or other Linux).
 #
-# Installs everything Pi Learn needs: its own copy of Node.js, the app itself,
-# and a "Pi Learn" icon. Nothing else on the computer is changed. Safe to run
+# Installs everything LILA needs: its own copy of Node.js, the app itself,
+# and a "LILA" icon. Nothing else on the computer is changed. Safe to run
 # again: it updates the app to the latest version and keeps your lessons and
 # sign-ins.
 #
-#   curl -fsSL https://raw.githubusercontent.com/mryeburn/pi-learn-userfriendlyinterface/main/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/mryeburn/lila/main/scripts/install.sh | bash
 
 set -euo pipefail
 
@@ -14,10 +14,10 @@ set -euo pipefail
 # of it (it arrives through a pipe).
 {
 
-REPO="mryeburn/pi-learn-userfriendlyinterface"
+REPO="mryeburn/lila"
 NODE_DIST="https://nodejs.org/dist/latest-v22.x"
-APP_DIR="$HOME/pi-learn"
-DATA_DIR="$HOME/.pi-learn-web"
+APP_DIR="$HOME/lila"
+DATA_DIR="$HOME/.lila"
 NODE_DIR="$DATA_DIR/node"
 
 say() { printf '\n\033[1;34m==>\033[0m %s\n' "$*"; }
@@ -58,7 +58,7 @@ trap 'rm -rf "$TMP"' EXIT
 sha256() { if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1; }
 
 # ── 2. Node.js ────────────────────────────────────────────────────────────────
-# Pi Learn gets its own private copy of Node.js, so it never depends on (or
+# LILA gets its own private copy of Node.js, so it never depends on (or
 # disturbs) any other Node.js on the computer.
 say "Getting Node.js"
 curl -fsSL "$NODE_DIST/SHASUMS256.txt" -o "$TMP/SHASUMS256.txt" || fail "Couldn't reach nodejs.org. Check the internet connection and try again."
@@ -79,20 +79,21 @@ export PATH="$NODE_DIR/bin:$PATH"
 echo "Using Node.js $(node -v)"
 
 # ── 3. The app ────────────────────────────────────────────────────────────────
-say "Downloading Pi Learn"
+say "Downloading LILA"
 # Pin the exact version, so the app knows what it's running when checking for updates.
 SHA="$(curl -fsSL "https://github.com/$REPO.git/info/refs?service=git-upload-pack" 2>/dev/null | grep -aoE '[0-9a-f]{40} refs/heads/main' | head -n1 | cut -c1-40 || true)"
 if [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]; then REF="$SHA"; else SHA=""; REF="refs/heads/main"; fi
-TARBALL_URL="${PI_LEARN_TARBALL:-https://github.com/$REPO/archive/$REF.tar.gz}"
+TARBALL_URL="${LILA_TARBALL:-https://github.com/$REPO/archive/$REF.tar.gz}"
 curl -fsSL "$TARBALL_URL" -o "$TMP/app.tar.gz" ||
-	fail "Couldn't download Pi Learn from GitHub. If the repository is private, it has to be made public first."
+	fail "Couldn't download LILA from GitHub. If the repository is private, it has to be made public first."
 mkdir -p "$TMP/app"
 tar -xzf "$TMP/app.tar.gz" -C "$TMP/app" --strip-components=1
-[ -f "$TMP/app/package.json" ] || fail "The download doesn't look like Pi Learn."
+[ -f "$TMP/app/package.json" ] || fail "The download doesn't look like LILA."
 
-# Stop a running copy so it restarts with the new version.
-pkill -f "tsx/dist/cli.mjs server/index.ts" 2>/dev/null || true
-pkill -f "tsx server/index.ts" 2>/dev/null || true
+# Stop a running copy so it restarts with the new version. The launcher starts
+# the server by its full path, so this matches LILA only, never another app
+# (such as Pi Learn) running from a server/index.ts of its own.
+pkill -f "$APP_DIR/server/index.ts" 2>/dev/null || true
 
 # Reuse already-installed packages to make updates quick.
 if [ -d "$APP_DIR/node_modules" ]; then mv "$APP_DIR/node_modules" "$TMP/app/"; fi
@@ -100,7 +101,7 @@ rm -rf "$APP_DIR"
 mv "$TMP/app" "$APP_DIR"
 if [ -n "$SHA" ]; then printf '{"repo":"%s","sha":"%s"}\n' "$REPO" "$SHA" >"$APP_DIR/.version"; fi
 
-say "Installing Pi Learn's components (this takes a few minutes the first time)"
+say "Installing LILA's components (this takes a few minutes the first time)"
 cd "$APP_DIR"
 npm install --no-audit --no-fund --loglevel=error --update-notifier=false </dev/null
 say "Building the app"
@@ -120,17 +121,17 @@ done'
 fi
 cat >"$APP_DIR/launch.sh" <<EOF
 #!/bin/bash
-# Starts Pi Learn in the background if it isn't running, then opens it in the browser.
+# Starts LILA in the background if it isn't running, then opens it in the browser.
 export PATH="$NODE_DIR/bin:/usr/local/bin:/usr/bin:/bin"
 cd "$APP_DIR"
-URL=http://127.0.0.1:4747
+URL=http://127.0.0.1:4848
 LOG="$DATA_DIR/app.log"
 if ! curl -s -o /dev/null "\$URL"; then
 	echo "--- starting \$(date)" >>"\$LOG"
-	PI_LEARN_NO_OPEN=1 $DETACH node node_modules/tsx/dist/cli.mjs server/index.ts >>"\$LOG" 2>&1 </dev/null &
+	LILA_NO_OPEN=1 $DETACH node "$APP_DIR/node_modules/tsx/dist/cli.mjs" "$APP_DIR/server/index.ts" >>"\$LOG" 2>&1 </dev/null &
 	for i in \$(seq 1 60); do curl -s -o /dev/null "\$URL" && break; sleep 1; done
 fi
-[ -n "\${PI_LEARN_NO_BROWSER:-}" ] && exit 0
+[ -n "\${LILA_NO_BROWSER:-}" ] && exit 0
 $OPEN_CMD
 EOF
 chmod +x "$APP_DIR/launch.sh"
@@ -138,22 +139,22 @@ chmod +x "$APP_DIR/launch.sh"
 # ── 5. Icon ───────────────────────────────────────────────────────────────────
 if [ "$OS" = darwin ]; then
 	# A tiny app in ~/Applications that runs the launcher.
-	APP="$HOME/Applications/Pi Learn.app"
+	APP="$HOME/Applications/LILA.app"
 	rm -rf "$APP"
 	mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-	cp "$APP_DIR/scripts/icon/pi-learn.icns" "$APP/Contents/Resources/PiLearn.icns"
-	printf '#!/bin/bash\nexec "%s"\n' "$APP_DIR/launch.sh" >"$APP/Contents/MacOS/PiLearn"
-	chmod +x "$APP/Contents/MacOS/PiLearn"
+	cp "$APP_DIR/scripts/icon/lila.icns" "$APP/Contents/Resources/LILA.icns"
+	printf '#!/bin/bash\nexec "%s"\n' "$APP_DIR/launch.sh" >"$APP/Contents/MacOS/LILA"
+	chmod +x "$APP/Contents/MacOS/LILA"
 	cat >"$APP/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CFBundleName</key><string>Pi Learn</string>
-	<key>CFBundleDisplayName</key><string>Pi Learn</string>
-	<key>CFBundleIdentifier</key><string>io.github.mryeburn.pilearn</string>
-	<key>CFBundleExecutable</key><string>PiLearn</string>
-	<key>CFBundleIconFile</key><string>PiLearn</string>
+	<key>CFBundleName</key><string>LILA</string>
+	<key>CFBundleDisplayName</key><string>LILA</string>
+	<key>CFBundleIdentifier</key><string>io.github.mryeburn.lila</string>
+	<key>CFBundleExecutable</key><string>LILA</string>
+	<key>CFBundleIconFile</key><string>LILA</string>
 	<key>CFBundlePackageType</key><string>APPL</string>
 	<key>CFBundleVersion</key><string>1</string>
 	<key>LSUIElement</key><true/>
@@ -162,39 +163,39 @@ if [ "$OS" = darwin ]; then
 EOF
 	touch "$APP"
 	# Put it in the Dock, once.
-	if ! defaults read com.apple.dock persistent-apps 2>/dev/null | grep -q "Pi%20Learn.app"; then
+	if ! defaults read com.apple.dock persistent-apps 2>/dev/null | grep -q "LILA.app"; then
 		defaults write com.apple.dock persistent-apps -array-add "<dict><key>tile-data</key><dict><key>file-data</key><dict><key>_CFURLString</key><string>file://${APP// /%20}/</string><key>_CFURLStringType</key><integer>15</integer></dict></dict></dict>" &&
 			killall Dock 2>/dev/null || true
 	fi
-	DONE_MSG='Click the Pi Learn icon in your Dock to start it. (It is also in
+	DONE_MSG='Click the LILA icon in your Dock to start it. (It is also in
   Launchpad, and in the Applications folder inside your home folder.)'
 else
 	# A launcher entry; on a Chromebook it shows up under "Linux apps".
-	cp "$APP_DIR/scripts/icon/pi-learn.png" "$DATA_DIR/icon.png"
+	cp "$APP_DIR/scripts/icon/lila.png" "$DATA_DIR/icon.png"
 	mkdir -p "$HOME/.local/share/applications"
-	cat >"$HOME/.local/share/applications/pi-learn.desktop" <<EOF
+	cat >"$HOME/.local/share/applications/lila.desktop" <<EOF
 [Desktop Entry]
 Type=Application
-Name=Pi Learn
+Name=LILA
 Comment=Learn anything with your AI tutor
 Exec=$APP_DIR/launch.sh
 Icon=$DATA_DIR/icon.png
 EOF
-	DONE_MSG='Open the launcher, go into the "Linux apps" folder and click "Pi Learn".
+	DONE_MSG='Open the launcher, go into the "Linux apps" folder and click "LILA".
   (Right-click it and choose "Pin to shelf" to keep it handy.)'
 fi
 
 # Updating from inside the app: start the new version; the open page reloads itself.
-if [ -n "${PI_LEARN_RESTART:-}" ]; then PI_LEARN_NO_BROWSER=1 "$APP_DIR/launch.sh"; fi
+if [ -n "${LILA_RESTART:-}" ]; then LILA_NO_BROWSER=1 "$APP_DIR/launch.sh"; fi
 
 say "Done!"
 cat <<EOF
 
-  Pi Learn is installed. You can close this window.
+  LILA is installed. You can close this window.
 
   $DONE_MSG
 
-  The first time, Pi Learn asks you to connect an AI provider.
+  The first time, LILA asks you to connect an AI provider.
 
 EOF
 }

@@ -1,5 +1,5 @@
 @echo off
-rem Double-click this file on Windows to start Pi Learn.
+rem Double-click this file on Windows to start LILA.
 cd /d "%~dp0"
 where node >nul 2>nul
 if errorlevel 1 (
@@ -8,7 +8,7 @@ if errorlevel 1 (
   exit /b 1
 )
 if not exist node_modules (
-  echo First run: installing Pi Learn ^(this takes a minute^)...
+  echo First run: installing LILA ^(this takes a minute^)...
   call npm install
   if errorlevel 1 (
     echo Install failed.

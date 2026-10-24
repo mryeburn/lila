@@ -1,8 +1,8 @@
 {
-  "name": "pi-learn-web",
+  "name": "lila",
   "version": "0.1.0",
   "private": true,
-  "description": "A friendly browser interface for Amos Blomqvist's Pi Learn tutoring system.",
+  "description": "LILA Interactive Learning Assistant: a friendly AI tutor for learning anything.",
   "type": "module",
   "engines": {
     "node": ">=22.19.0"

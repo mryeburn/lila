@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 // Everything this app writes lives under one folder in the user's home
 // directory, so lessons survive reinstalls and nothing lands in the repo.
-export const DATA_DIR = process.env.PI_LEARN_DATA_DIR || path.join(os.homedir(), ".pi-learn-web");
+export const DATA_DIR = process.env.LILA_DATA_DIR || path.join(os.homedir(), ".lila");
 export const WORKSPACE_DIR = path.join(DATA_DIR, "workspace");
 export const SESSIONS_DIR = path.join(DATA_DIR, "lessons");
 const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");

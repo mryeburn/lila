@@ -1,7 +1,7 @@
 // Self-update for copies set up with the one-step installers. The installer
 // records which version it installed in `.version`; updating just runs the
 // same installer again in the background, which replaces the app, keeps the
-// learner's data and restarts Pi Learn. The page reloads itself when it sees
+// learner's data and restarts LILA. The page reloads itself when it sees
 // the new version.
 
 import { spawn } from "node:child_process";
@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { DATA_DIR } from "./config.ts";
 
 export interface UpdateStatus {
-	/** False when Pi Learn wasn't set up with an installer (for example a git clone). */
+	/** False when LILA wasn't set up with an installer (for example a git clone). */
 	supported: boolean;
 	state: "idle" | "checking" | "current" | "available" | "updating" | "error";
 	current?: string;
@@ -69,10 +69,10 @@ export async function checkForUpdate(): Promise<UpdateStatus> {
 /** Runs the installer in the background. It stops this server when it's ready to swap versions. */
 export function startUpdate(): void {
 	const v = installed();
-	if (!v) throw new Error("Updates are only available when Pi Learn was set up with an installer.");
+	if (!v) throw new Error("Updates are only available when LILA was set up with an installer.");
 	const base = `https://raw.githubusercontent.com/${v.repo}/main/scripts`;
 	const log = fs.openSync(path.join(DATA_DIR, "update.log"), "a");
-	const env = { ...process.env, PI_LEARN_RESTART: "1" };
+	const env = { ...process.env, LILA_RESTART: "1" };
 	const child =
 		process.platform === "win32"
 			? spawn(

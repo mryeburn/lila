@@ -38,7 +38,7 @@ export async function readLink(raw: string): Promise<Material> {
 		res = await fetch(url, {
 			redirect: "follow",
 			signal: AbortSignal.timeout(30_000),
-			headers: { "user-agent": "Mozilla/5.0 (Pi Learn)", accept: "text/html,application/pdf,text/plain,*/*" },
+			headers: { "user-agent": "Mozilla/5.0 (LILA)", accept: "text/html,application/pdf,text/plain,*/*" },
 		});
 	} catch {
 		throw new MaterialError(`Couldn't open ${url.host}. Check the link and your internet connection.`);
@@ -78,7 +78,7 @@ async function toText(name: string, data: Buffer, contentType: string): Promise<
 		const { totalPages, text } = await extractText(pdf, { mergePages: true });
 		if (text.replace(/\s/g, "").length < 40 * Math.min(totalPages, 5)) {
 			throw new MaterialError(
-				"This PDF seems to be scanned pages (pictures of text), which Pi Learn can't read yet. A PDF with selectable text will work.",
+				"This PDF seems to be scanned pages (pictures of text), which LILA can't read yet. A PDF with selectable text will work.",
 			);
 		}
 		return text;

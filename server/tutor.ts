@@ -477,7 +477,7 @@ export class Tutor implements InteractionBroker {
 	private visualReminder(tagged = false): string {
 		const n = this.repliesWithoutVisual();
 		if (n < 2) return "";
-		const note = `Note from the Pi Learn app, not from the learner: your last ${n} replies had no visual. Include a fitting diagram, chart or find_image photo in your next reply, or in the context or explanation of your next quiz question.`;
+		const note = `Note from the LILA app, not from the learner: your last ${n} replies had no visual. Include a fitting diagram, chart or find_image photo in your next reply, or in the context or explanation of your next quiz question.`;
 		return tagged ? `\n\n<app-note>${note}</app-note>` : `\n\n[${note}]`;
 	}
 
@@ -597,7 +597,7 @@ export class Tutor implements InteractionBroker {
 				if (result.markdown) pics.add(id, result.markdown);
 				if (this.pictures !== pics) return;
 				if (!result.markdown && required) {
-					this.broadcast({ type: "error", message: "Pi Learn couldn't make a picture this time. Please try again." });
+					this.broadcast({ type: "error", message: "LILA couldn't make a picture this time. Please try again." });
 				}
 				this.broadcast({ type: "transcript", items: this.transcript() });
 			});

@@ -152,7 +152,7 @@ export function Settings({ store, onClose }: { store: TutorStore; onClose: () =>
 				<section>
 					<h3>1. Connect an AI provider</h3>
 					<p className="muted-text">
-						Pi Learn uses an AI model to teach you. Connect at least one provider. Your sign-in is stored only on this
+						LILA uses an AI model to teach you. Connect at least one provider. Your sign-in is stored only on this
 						computer.
 					</p>
 					{login && activeProvider ? (
@@ -254,6 +254,14 @@ export function Settings({ store, onClose }: { store: TutorStore; onClose: () =>
 				)}
 
 				<PictureLogSection store={store} />
+				<section className="about">
+					<h3>About LILA</h3>
+					<p>LILA Interactive Learning Assistant.</p>
+					<p className="dedication">
+						Dedicated to the best teachers in my life: my grade 4 teacher, Mr. Roberts, my grade 7 teacher, Mrs.
+						Woodside, my Mandarin teacher, Mrs. Bi, and my pharmacology teacher Dr. Rudolf Vrba
+					</p>
+				</section>
 			</div>
 		</div>
 	);
@@ -268,8 +276,8 @@ function PictureLogSection({ store }: { store: TutorStore }) {
 		<section>
 			<h3>Picture log</h3>
 			<p className="muted-text">
-				A record of how Pi Learn chose each picture. If pictures seem wrong or missing, copy it and send it to whoever
-				looks after your Pi Learn.
+				A record of how LILA chose each picture. If pictures seem wrong or missing, copy it and send it to whoever
+				looks after your LILA.
 			</p>
 			{!open ? (
 				<button
@@ -318,13 +326,13 @@ function UpdateSection({ store }: { store: TutorStore }) {
 			<h3>Updates</h3>
 			{state === "updating" ? (
 				<p className="muted-text">
-					Updating Pi Learn. This takes a minute or two. The page will reload by itself when the new version is ready.
+					Updating LILA. This takes a minute or two. The page will reload by itself when the new version is ready.
 				</p>
 			) : (
 				<div className="update-row">
 					{state === "available" ? (
 						<>
-							<span>A new version of Pi Learn is available.</span>
+							<span>A new version of LILA is available.</span>
 							<button type="button" className="primary small" onClick={() => send({ type: "start_update" })}>
 								Update now
 							</button>
@@ -338,7 +346,7 @@ function UpdateSection({ store }: { store: TutorStore }) {
 										? update.error
 										: state === "checking"
 											? "Checking…"
-											: "Get the newest improvements to Pi Learn."}
+											: "Get the newest improvements to LILA."}
 							</span>
 							<button
 								type="button"

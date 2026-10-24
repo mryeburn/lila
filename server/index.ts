@@ -12,7 +12,7 @@ import { Tutor } from "./tutor.ts";
 import { readPictureLog } from "./picturelog.ts";
 import { APP_VERSION, checkForUpdate, initialStatus, startUpdate, type UpdateStatus } from "./update.ts";
 
-const PORT = Number(process.env.PORT || 4747);
+const PORT = Number(process.env.PORT || 4848);
 // Local only by default: the app can spend your AI credits, so it shouldn't be
 // reachable from other machines unless you ask for that.
 const HOST = process.env.HOST || "127.0.0.1";
@@ -20,7 +20,7 @@ const WEB_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../w
 
 ensureDirs();
 const runtime = await ModelRuntime.create(
-	process.env.PI_LEARN_MODELS_PATH ? { modelsPath: process.env.PI_LEARN_MODELS_PATH } : undefined,
+	process.env.LILA_MODELS_PATH ? { modelsPath: process.env.LILA_MODELS_PATH } : undefined,
 );
 
 const clients = new Set<WebSocket>();
@@ -264,10 +264,10 @@ wss.on("connection", (ws, req) => {
 await tutor.openLesson();
 server.on("error", (err: NodeJS.ErrnoException) => {
 	if (err.code === "EADDRINUSE") {
-		// Most likely Pi Learn is already running (started twice): just show it.
+		// Most likely LILA is already running (started twice): just show it.
 		const url = `http://${HOST === "0.0.0.0" ? "localhost" : HOST}:${PORT}`;
-		console.log(`\n  Something is already running at ${url}, probably Pi Learn. Opening it in your browser.\n  To run a second copy, set a different PORT.\n`);
-		if (!process.env.PI_LEARN_NO_OPEN) openBrowser(url);
+		console.log(`\n  Something is already running at ${url}, probably LILA. Opening it in your browser.\n  To run a second copy, set a different PORT.\n`);
+		if (!process.env.LILA_NO_OPEN) openBrowser(url);
 		tutor.dispose();
 		setTimeout(() => process.exit(0), 500);
 		return;
@@ -276,8 +276,8 @@ server.on("error", (err: NodeJS.ErrnoException) => {
 });
 server.listen(PORT, HOST, () => {
 	const url = `http://${HOST === "0.0.0.0" ? "localhost" : HOST}:${PORT}`;
-	console.log(`\n  Pi Learn is running at ${url}\n  Lessons are saved in ${DATA_DIR}\n  Press Ctrl+C to stop.\n`);
-	if (!process.env.PI_LEARN_NO_OPEN) openBrowser(url);
+	console.log(`\n  LILA is running at ${url}\n  Lessons are saved in ${DATA_DIR}\n  Press Ctrl+C to stop.\n`);
+	if (!process.env.LILA_NO_OPEN) openBrowser(url);
 });
 
 function openBrowser(url: string) {
