@@ -132,7 +132,7 @@ setInterval(() => void refreshUpdate(), UPDATE_CHECK_EVERY).unref();
 async function handle(ws: WebSocket, msg: ClientMessage) {
 	switch (msg.type) {
 		case "prompt":
-			if (msg.text.trim()) void tutor.prompt(msg.text.trim());
+			if (msg.text.trim()) void tutor.prompt(msg.text.trim(), undefined, msg.question === true);
 			break;
 		case "answer":
 			tutor.answer(msg.id, msg.answer);

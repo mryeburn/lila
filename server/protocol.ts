@@ -96,7 +96,7 @@ export type ServerMessage =
 	| { type: "error"; message: string };
 
 export type ClientMessage =
-	| { type: "prompt"; text: string }
+	| { type: "prompt"; text: string; /** Typed into a "Questions?" box. */ question?: boolean }
 	| { type: "answer"; id: string; answer: unknown }
 	| { type: "abort" }
 	| { type: "new_lesson" }
