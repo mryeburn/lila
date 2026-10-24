@@ -168,6 +168,8 @@ export class Tutor implements InteractionBroker {
 	private pictures = new LessonPictures(undefined);
 	/** Every other quiz gets a picture when it has none of its own. */
 	private lastQuizHadPicture = false;
+	/** The model of the last lesson, kept while switching lessons. */
+	private lastModel: AgentSession["model"];
 
 	constructor(
 		readonly runtime: ModelRuntime,
@@ -219,7 +221,9 @@ export class Tutor implements InteractionBroker {
 
 	async state(): Promise<TutorState> {
 		const available = await this.runtime.getAvailable().catch(() => []);
-		const model = this.session?.model;
+		// Between lessons there's briefly no session; report the last model so
+		// the page doesn't think the learner needs to sign in again.
+		const model = this.session?.model ?? this.usableLastModel();
 		return {
 			signedIn: available.length > 0,
 			model: model ? { provider: model.provider, id: model.id, name: model.name ?? model.id } : null,
@@ -335,7 +339,9 @@ export class Tutor implements InteractionBroker {
 		this.lastQuizHadPicture = false;
 		this.lastError = undefined;
 
-		const model = await this.pickModel();
+		// If the provider list is briefly unavailable (for example while a sign-in
+		// refreshes), carry on with the model the last lesson used.
+		const model = (await this.pickModel()) ?? this.usableLastModel();
 		const loader = new DefaultResourceLoader({
 			cwd: WORKSPACE_DIR,
 			agentDir: getAgentDir(),
@@ -372,6 +378,7 @@ export class Tutor implements InteractionBroker {
 			],
 		});
 		this.session = session;
+		if (session.model) this.lastModel = session.model;
 		this.pictures = new LessonPictures(session.sessionFile?.replace(/\.jsonl$/, ".pictures.json"));
 		this.unsubscribe = session.subscribe((event) => this.onEvent(event));
 		this.broadcast({ type: "transcript", items: this.transcript() });
@@ -616,6 +623,7 @@ export class Tutor implements InteractionBroker {
 		if (!model) throw new Error(`Unknown model ${provider}/${modelId}`);
 		this.settings = { ...this.settings, provider, modelId };
 		saveSettings(this.settings);
+		this.lastModel = model;
 		if (this.session) await this.session.setModel(model);
 		await this.pushState();
 	}
@@ -626,6 +634,12 @@ export class Tutor implements InteractionBroker {
 		saveSettings(this.settings);
 		this.session?.setThinkingLevel(level as Thinking);
 		await this.pushState();
+	}
+
+	/** The last lesson's model, unless the learner has since signed out of its provider. */
+	private usableLastModel(): AgentSession["model"] {
+		const model = this.lastModel;
+		return model && this.runtime.hasConfiguredAuth(model.provider) ? model : undefined;
 	}
 
 	/** Called after sign-in changes, so a lesson without a model picks one up. */
