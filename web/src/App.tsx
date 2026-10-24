@@ -114,7 +114,7 @@ function Item({ item, store }: { item: TranscriptItem; store: TutorStore }) {
 						details={item.details}
 						result={pending.result}
 						onNext={() => answer({})}
-						onAsk={(text) => store.send({ type: "prompt", text })}
+						onAsk={(text) => store.send({ type: "prompt", text, question: true })}
 						pictures={pictures}
 					/>
 				);
@@ -173,10 +173,25 @@ export function App() {
 		if (needsSetup) setSettingsOpen(true);
 	}, [state, needsSetup]);
 
-	// Follow new content unless the learner has scrolled up to reread.
+	// Follow new content unless the learner has scrolled up to reread, but
+	// stop once a new tutor reply reaches the top of the screen, so a long
+	// reply is read from its beginning. "More below" then takes them down.
+	const [moreBelow, setMoreBelow] = useState(false);
+	const checkMoreBelow = (el: HTMLElement) => setMoreBelow(el.scrollHeight - el.scrollTop - el.clientHeight > 80);
 	useLayoutEffect(() => {
 		const el = scrollRef.current;
-		if (el && stick.current) el.scrollTop = el.scrollHeight;
+		if (!el) return;
+		if (stick.current) {
+			let target = el.scrollHeight - el.clientHeight;
+			const replies = el.querySelectorAll<HTMLElement>(".msg.tutor");
+			const reply = replies[replies.length - 1];
+			if (reply) {
+				const top = reply.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - 16;
+				if (top >= el.scrollTop - 4) target = Math.min(target, top);
+			}
+			if (target > el.scrollTop) el.scrollTop = target;
+		}
+		checkMoreBelow(el);
 	}, [items, streaming, store.interactions]);
 
 	useEffect(() => {
@@ -185,13 +200,13 @@ export function App() {
 		return () => clearTimeout(t);
 	}, [store.toast, store.clearToast]);
 
-	const submit = (text = draft) => {
+	const submit = (text = draft, question = false) => {
 		if (!text.trim()) return;
 		if (!state?.model) {
 			setSettingsOpen(true);
 			return;
 		}
-		send({ type: "prompt", text });
+		send({ type: "prompt", text, question });
 		setDraft("");
 		stick.current = true;
 	};
@@ -302,6 +317,7 @@ export function App() {
 					onScroll={(e) => {
 						const el = e.currentTarget;
 						stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+						checkMoreBelow(el);
 					}}
 				>
 					<div className="transcript">
@@ -336,7 +352,7 @@ export function App() {
 								text="If you have a question about this section, type it in here. Otherwise, continue the lesson."
 								continueLabel="Continue the lesson →"
 								onContinue={() => submit("No questions, please continue.")}
-								onAsk={(text) => submit(text)}
+								onAsk={(text) => submit(text, true)}
 							/>
 						)}
 						{busy && Object.keys(store.interactions).length === 0 && (streaming === null || streaming.trim() === "") && (
@@ -349,6 +365,17 @@ export function App() {
 					</div>
 				</div>
 
+				{moreBelow && (
+					<div className="more-below-anchor">
+						<button
+							type="button"
+							className="more-below"
+							onClick={() => scrollRef.current?.scrollBy({ top: scrollRef.current.clientHeight * 0.8, behavior: "smooth" })}
+						>
+							↓ More below
+						</button>
+					</div>
+				)}
 				<form
 					className="composer"
 					onSubmit={(e) => {

@@ -29,10 +29,15 @@ const DEFAULT_MODELS: Array<[string, RegExp]> = [
 // A diagram, chart or photo in a tutor reply (text or quiz/question card).
 const VISUAL = /```(mermaid|svg)|!\[[^\]]*\]\(https:\/\//;
 // Hidden notes from the app to the tutor, appended to the learner's messages.
+/** Added, out of the learner's sight, to a question they asked, so the tutor answers it rather than quizzing them on it. */
+const ANSWER_NOTE =
+	"\n\n<app-note>The learner asked this. Answer it clearly and fully before anything else, even during the pre-test. Don't turn it into a quiz question. Then carry on where you left off.</app-note>";
 const APP_NOTE = /\s*<app-note>[\s\S]*?<\/app-note>\s*$/;
 
 // Teaching text at least this long, with no picture, gets one from the app.
 const MIN_SECTION_LENGTH = 400;
+/** Outcomes of a quiz or question card the learner actually saw. */
+const SHOWN = ["answered", "cancelled", "paused"];
 /** What the page sends when the learner has no questions after a section. */
 const CONTINUE_TEXT = "No questions, please continue.";
 
@@ -319,7 +324,12 @@ export class Tutor implements InteractionBroker {
 			if (pictures) item.pictures = pictures;
 			if (this.pictures.drawing.has(item.id)) item.drawing = true;
 		}
-		return items;
+		// A call that failed (bad arguments, a question that couldn't be shown)
+		// never reached the learner and the tutor asks again, so leave it out
+		// rather than show an empty card.
+		return items.filter(
+			(item) => !((item.kind === "quiz" || item.kind === "ask") && item.result && !SHOWN.includes((item.result as any).status)),
+		);
 	}
 
 	async lessons(): Promise<LessonSummary[]> {
@@ -428,7 +438,7 @@ export class Tutor implements InteractionBroker {
 	 * Sends the learner's message. `cardText` is used instead when the message
 	 * answers a waiting card (a short note in place of a whole document).
 	 */
-	async prompt(text: string, cardText = text): Promise<void> {
+	async prompt(text: string, cardText = text, asked = false): Promise<void> {
 		if (!this.session) await this.openLesson();
 		const session = this.session!;
 		if (!session.model) {
@@ -446,7 +456,10 @@ export class Tutor implements InteractionBroker {
 		// A graded quiz just waits for "Next question", so it's dismissed and the
 		// text goes to the tutor as a normal message.
 		for (const { interaction, resolve } of [...this.pending.values()]) {
-			if (interaction.kind === "graded") resolve({});
+			if (interaction.kind !== "graded") continue;
+			// Typed right after a quiz answer: a follow-up question about it.
+			asked = true;
+			resolve({});
 		}
 		if (this.pending.size > 0) {
 			for (const { interaction, resolve } of [...this.pending.values()]) {
@@ -461,9 +474,9 @@ export class Tutor implements InteractionBroker {
 		}
 		try {
 			if (session.isStreaming) {
-				await session.steer(text + this.visualReminder(true));
+				await session.steer(text + (asked ? ANSWER_NOTE : "") + this.visualReminder(true));
 			} else {
-				await session.prompt(text + this.visualReminder(true));
+				await session.prompt(text + (asked ? ANSWER_NOTE : "") + this.visualReminder(true));
 			}
 		} catch (err) {
 			this.lastError = (err as Error).message;
@@ -716,8 +729,8 @@ export class Tutor implements InteractionBroker {
 			case "agent_settled":
 				this.busy = false;
 				this.streamingText = null;
-				this.broadcast({ type: "streaming", text: null });
 				this.broadcast({ type: "transcript", items: this.transcript() });
+				this.broadcast({ type: "streaming", text: null });
 				void this.pushState();
 				void this.lessons().then((lessons) => this.broadcast({ type: "lessons", lessons }));
 				break;
@@ -745,9 +758,12 @@ export class Tutor implements InteractionBroker {
 				if (event.type === "message_end" && (event as any).message?.role === "assistant") {
 					this.autoIllustrateMessage((event as any).message);
 				}
+				// Transcript first: the page swaps the streamed text for the saved
+				// message without the page briefly getting shorter (which would
+				// throw off its scroll position).
 				this.streamingText = null;
-				this.broadcast({ type: "streaming", text: null });
 				this.broadcast({ type: "transcript", items: this.transcript() });
+				this.broadcast({ type: "streaming", text: null });
 				break;
 			case "session_info_changed":
 				void this.pushState();
