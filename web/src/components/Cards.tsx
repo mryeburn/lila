@@ -149,6 +149,7 @@ export function QuizResult({
 					<Markdown text={result.explanation} />
 				</div>
 			)}
+			{onNext && <p className="next-hint">Any questions about this? Type them below, or click Next question.</p>}
 			{onNext && (
 				<div className="card-actions">
 					<button

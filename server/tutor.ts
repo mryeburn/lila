@@ -9,6 +9,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
 import { type AppSettings, loadSettings, SESSIONS_DIR, saveSettings, WORKSPACE_DIR } from "./config.ts";
+import { asMessage, type Material, parseMessage } from "./materials.ts";
 import { BASE_PROMPT, buildTeachingPrompt } from "./prompt.ts";
 import { createAskTool, createQuizTool, type InteractionBroker, type PendingInteraction } from "./tools.ts";
 import type { LessonSummary, ServerMessage, TranscriptItem, TutorState } from "./protocol.ts";
@@ -113,7 +114,9 @@ export class Tutor implements InteractionBroker {
 		for (const msg of this.session.messages as any[]) {
 			if (msg.role === "user") {
 				const text = textOf(msg.content).trim();
-				if (text) items.push({ kind: "user", text });
+				const resource = parseMessage(text);
+				if (resource) items.push({ kind: "resource", ...resource });
+				else if (text) items.push({ kind: "user", text });
 			} else if (msg.role === "assistant") {
 				let text = "";
 				for (const block of msg.content ?? []) {
@@ -235,7 +238,16 @@ export class Tutor implements InteractionBroker {
 		this.busy = false;
 	}
 
-	async prompt(text: string): Promise<void> {
+	/** Adds the learner's own material to the lesson as a message to the tutor. */
+	async addMaterial(material: Material): Promise<void> {
+		await this.prompt(asMessage(material), `I've added a learning resource: ${material.name}`);
+	}
+
+	/**
+	 * Sends the learner's message. `cardText` is used instead when the message
+	 * answers a waiting card (a short note in place of a whole document).
+	 */
+	async prompt(text: string, cardText = text): Promise<void> {
 		if (!this.session) await this.openLesson();
 		const session = this.session!;
 		if (!session.model) {
@@ -243,7 +255,10 @@ export class Tutor implements InteractionBroker {
 			await this.pushState();
 			return;
 		}
-		if (!session.sessionName) session.setSessionName(text.replace(/\s+/g, " ").trim().slice(0, 80));
+		if (!session.sessionName) {
+			const title = parseMessage(text)?.name ?? text;
+			session.setSessionName(title.replace(/\s+/g, " ").trim().slice(0, 80));
+		}
 		this.lastError = undefined;
 		// A card is waiting: the run is paused inside that tool call, so a normal
 		// message would queue behind it forever. Use the text as the card's answer.
@@ -255,11 +270,12 @@ export class Tutor implements InteractionBroker {
 		if (this.pending.size > 0) {
 			for (const { interaction, resolve } of [...this.pending.values()]) {
 				if (interaction.kind === "graded") continue;
-				if (interaction.kind === "quiz") resolve({ skippedWith: text });
-				else if (interaction.mode === "text") resolve({ text });
-				else resolve({ other: text });
+				if (interaction.kind === "quiz") resolve({ skippedWith: cardText });
+				else if (interaction.mode === "text") resolve({ text: cardText });
+				else resolve({ other: cardText });
 			}
-			return;
+			// The whole document follows the card's answer as its own message.
+			if (cardText === text) return;
 		}
 		try {
 			if (session.isStreaming) {
@@ -307,6 +323,7 @@ export class Tutor implements InteractionBroker {
 		const lines: string[] = [`# ${this.session?.sessionName ?? "Lesson"}`, ""];
 		for (const item of this.transcript()) {
 			if (item.kind === "user") lines.push(`> **You:** ${item.text.replace(/\n/g, "\n> ")}`, "");
+			else if (item.kind === "resource") lines.push(`> 📎 **Learning resource:** ${item.name}`, "");
 			else if (item.kind === "assistant") lines.push(item.text, "");
 			else if (item.kind === "error") lines.push(`> ⚠️ ${item.text}`, "");
 			else {

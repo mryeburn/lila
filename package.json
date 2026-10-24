@@ -15,8 +15,10 @@
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "1.4.0",
+    "mammoth": "^1.13.0",
     "tsx": "^4.19.2",
     "typebox": "1.3.27",
+    "unpdf": "^1.9.1",
     "ws": "^8.18.0"
   },
   "devDependencies": {

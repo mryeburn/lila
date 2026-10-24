@@ -15,7 +15,6 @@
 	[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
 	$Repo = 'mryeburn/pi-learn-userfriendlyinterface'
-	$ZipUrl = if ($env:PI_LEARN_ZIP) { $env:PI_LEARN_ZIP } else { "https://github.com/$Repo/archive/refs/heads/main.zip" }
 	$NodeDist = 'https://nodejs.org/dist/latest-v22.x'
 	$AppDir = Join-Path $HOME 'pi-learn'
 	$DataDir = Join-Path $HOME '.pi-learn-web'
@@ -78,6 +77,16 @@
 
 		# ── 2. The app ──────────────────────────────────────────────────────────
 		Say 'Downloading Pi Learn'
+		# Pin the exact version, so the app knows what it's running when checking for updates.
+		$sha = ''
+		try {
+			$refs = (Invoke-WebRequest -Uri "https://github.com/$Repo.git/info/refs?service=git-upload-pack" -UseBasicParsing).Content
+			if ($refs -is [byte[]]) { $refs = [Text.Encoding]::ASCII.GetString($refs) }
+			if ($refs -match '([0-9a-f]{40}) refs/heads/main') { $sha = $Matches[1] }
+		} catch { }
+		if ($sha -notmatch '^[0-9a-f]{40}$') { $sha = '' }
+		$ref = if ($sha) { $sha } else { 'refs/heads/main' }
+		$ZipUrl = if ($env:PI_LEARN_ZIP) { $env:PI_LEARN_ZIP } else { "https://github.com/$Repo/archive/$ref.zip" }
 		Download $ZipUrl (Join-Path $tmp 'app.zip') "Couldn't download Pi Learn from GitHub. If the repository is private, it has to be made public first."
 		$app = Extract (Join-Path $tmp 'app.zip') (Join-Path $tmp 'app')
 		if (-not (Test-Path (Join-Path $app.FullName 'package.json'))) { Fail "The download doesn't look like Pi Learn." }
@@ -86,6 +95,7 @@
 		if (Test-Path $oldModules) { Move-Item $oldModules $app.FullName }
 		if (Test-Path $AppDir) { Remove-Item -Recurse -Force $AppDir }
 		Move-Item $app.FullName $AppDir
+		if ($sha) { Set-Content -Path (Join-Path $AppDir '.version') -Value "{`"repo`":`"$Repo`",`"sha`":`"$sha`"}" -Encoding ASCII }
 
 		Say "Installing Pi Learn's components (this takes a few minutes the first time)"
 		Push-Location $AppDir
@@ -114,7 +124,7 @@ if (-not (Up)) {
 		-RedirectStandardOutput (Join-Path __DATA_DIR__ 'app.log') -RedirectStandardError (Join-Path __DATA_DIR__ 'app-errors.log')
 	for ($i = 0; $i -lt 60 -and -not (Up); $i++) { Start-Sleep -Seconds 1 }
 }
-Start-Process $url
+if (-not $env:PI_LEARN_NO_BROWSER) { Start-Process $url }
 '@
 		$launcher = $launcher.Replace('__NODE_DIR__', (& $q $NodeDir)).Replace('__APP_DIR__', (& $q $AppDir)).Replace('__DATA_DIR__', (& $q $DataDir))
 		Set-Content -Path (Join-Path $AppDir 'launch.ps1') -Value $launcher -Encoding UTF8
@@ -132,6 +142,12 @@ Start-Process $url
 			$link.WindowStyle = 7
 			$link.Description = 'Learn anything with your AI tutor'
 			$link.Save()
+		}
+
+		# Updating from inside the app: start the new version; the open page reloads itself.
+		if ($env:PI_LEARN_RESTART) {
+			$env:PI_LEARN_NO_BROWSER = '1'
+			& (Join-Path $AppDir 'launch.ps1')
 		}
 
 		Say 'Done!'
