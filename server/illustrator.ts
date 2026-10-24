@@ -1,5 +1,5 @@
 // Makes sure lessons have pictures. Asking the tutor to draw more wasn't
-// enough: the teaching method tells it to draw rarely, and it does. So the app
+// enough: models drift back to plain text. So the app
 // asks the same AI, in separate small requests whose only job is the picture,
 // for one image for a stretch of the lesson, and shows it under that part.
 //

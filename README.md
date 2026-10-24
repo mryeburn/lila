@@ -94,7 +94,7 @@ Browser (React)  ⇄  WebSocket  ⇄  Local Node server  ⇄  pi SDK  ⇄  your 
 ```
 
 - The server embeds pi through its SDK and runs one lesson at a time.
-- On first start it downloads Amos's teaching method (`skills/teach/SKILL.md`) straight from [his repository](https://github.com/amosblomqvist/learn) and keeps it up to date. It's not copied into this repo.
+- The tutor follows LILA's own teaching method in [`teaching-instructions.md`](teaching-instructions.md). Edit that file to change how it teaches.
 - The method is always on: it's added to the tutor's instructions along with a short note about how this interface differs from the terminal setup.
 - The terminal popups for `quiz` and `ask_user_question` are replaced by browser versions with the same names, inputs and results, so the method works unchanged. The correct answer never reaches the browser until you've answered.
 - The tutor has no file or shell access. It can only talk to you and ask questions.
@@ -131,4 +131,4 @@ npm run typecheck
 
 ## Credits
 
-The teaching method, the `quiz` and `ask_user_question` tool designs and the whole idea are by [Amos Blomqvist](https://github.com/amosblomqvist/learn). This project only provides a different interface to them. Amos's repository doesn't currently include a license, so this app fetches his teaching skill from his repository at runtime rather than redistributing it.
+Inspired by [Amos Blomqvist's Learn](https://github.com/amosblomqvist/learn). The `quiz` and `ask_user_question` tool designs still follow his, and will be rewritten. The teaching method in `teaching-instructions.md` is LILA's own.

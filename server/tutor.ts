@@ -173,7 +173,6 @@ export class Tutor implements InteractionBroker {
 
 	constructor(
 		readonly runtime: ModelRuntime,
-		private readonly teachSkillDir: string,
 		private readonly broadcast: (msg: ServerMessage) => void,
 	) {}
 
@@ -351,7 +350,7 @@ export class Tutor implements InteractionBroker {
 			noThemes: true,
 			noContextFiles: true,
 			systemPrompt: BASE_PROMPT,
-			appendSystemPrompt: buildTeachingPrompt(this.teachSkillDir),
+			appendSystemPrompt: buildTeachingPrompt(),
 		});
 		await loader.reload();
 
@@ -449,8 +448,7 @@ export class Tutor implements InteractionBroker {
 	}
 
 	// ── Keeping the lesson visual ────────────────────────────────────────────
-	// The teaching method says to draw rarely, and models tend to drift back to
-	// plain text. When the tutor has gone two replies without a diagram, chart
+	// Models tend to drift back to plain text. When the tutor has gone two replies without a diagram, chart
 	// or photo, the app reminds it, out of the learner's sight.
 
 	private repliesWithoutVisual(): number {
