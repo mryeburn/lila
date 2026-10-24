@@ -81,7 +81,7 @@ export function QuizCard({ quiz, onAnswer }: { quiz: Quiz; onAnswer: (answer: Qu
 			)}
 			<div className="card-actions">
 				<button type="button" className="secondary" onClick={() => submit({ dontKnow: true })} disabled={sent}>
-					I don't know
+					I don't know yet
 				</button>
 				<button
 					type="button"
@@ -153,8 +153,13 @@ export function QuizResult({
 				})}
 			</div>
 			<div className={`verdict ${verdict}`}>
-				{verdict === "right" ? "Correct!" : verdict === "wrong" ? "Not quite" : "You said you don't know, which is great to know"}
+				{verdict === "right" ? "Correct!" : verdict === "wrong" ? "Not quite" : "Thanks for being honest. Now we know what to work on"}
 			</div>
+			{(result.feedback ?? []).map((f: string, i: number) => (
+				<div key={i} className="choice-feedback">
+					<Markdown text={f} />
+				</div>
+			))}
 			{result.note && <div className="your-note">Your note: {result.note}</div>}
 			{result.explanation && (
 				<div className="explanation">

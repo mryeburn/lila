@@ -1,11 +1,10 @@
-// Browser versions of Pi Learn's two interactive tools, `quiz` and
-// `ask_user_question`. The originals draw popups in the terminal, which pi's
-// SDK can't show in a browser, so these keep the same names, parameters and
-// model-facing results but hand the question to the web page and wait for the
-// learner's answer.
+// LILA's two interactive cards. `quiz_question` is a graded multiple-choice
+// question; `ask_learner` asks something with no right answer (a goal, a
+// choice, a free-text reply). Both hand the card to the web page and wait for
+// the learner.
 //
-// The correct answer and explanation never leave the server until the learner
-// has answered.
+// Which choice is right, and the explanation, stay on the server until the
+// learner has answered.
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -71,33 +70,9 @@ export interface InteractionBroker {
 	beforeQuiz?(toolCallId: string, signal: AbortSignal | undefined): Promise<string | undefined>;
 }
 
-interface Option {
-	label: string;
-	value: string;
-	description?: string;
-}
-
-const OptionSchema = Type.Object({
-	label: Type.String({ description: "Display label for the option." }),
-	value: Type.Optional(
-		Type.String({ description: "Optional machine-readable value for the option. Defaults to the label." }),
-	),
-	description: Type.Optional(Type.String({ description: "Optional extra detail shown below the option." })),
-});
-
-function normalizeOptions(raw: Array<{ label: string; value?: string; description?: string }> | undefined): Option[] {
-	const seen = new Set<string>();
-	const out: Option[] = [];
-	for (const o of raw ?? []) {
-		const label = o.label?.trim() ?? "";
-		if (!label) continue;
-		const value = o.value?.trim() || label;
-		if (seen.has(value)) throw new Error(`duplicate option value "${value}"`);
-		seen.add(value);
-		out.push({ label, value, description: o.description?.trim() || undefined });
-	}
-	return out;
-}
+/** Tool names, as the tutor sees them. */
+export const QUIZ_TOOL = "quiz_question";
+export const ASK_TOOL = "ask_learner";
 
 function shuffled<T>(items: T[]): T[] {
 	const out = [...items];
@@ -108,90 +83,60 @@ function shuffled<T>(items: T[]): T[] {
 	return out;
 }
 
-function toDisplay(options: Option[]): DisplayOption[] {
-	return options.map((o, i) => ({ index: i + 1, label: o.label, description: o.description }));
-}
-
 function textResult(text: string, details: Record<string, unknown>) {
 	return { content: [{ type: "text" as const, text }], details };
 }
 
-// Models sometimes send a multi-select answer list as a JSON string.
-function correctValues(correctAnswer: string | string[]): string[] {
-	if (Array.isArray(correctAnswer)) return correctAnswer.map(String);
-	const trimmed = correctAnswer.trim();
-	if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
-		try {
-			const parsed = JSON.parse(trimmed);
-			if (Array.isArray(parsed)) return parsed.map(String);
-		} catch {
-			// Not JSON; treat it as one literal value.
-		}
-	}
-	return [correctAnswer];
-}
+// Models sometimes send booleans as strings.
+const isTrue = (v: unknown) => v === true || v === "true";
 
 // pi only adds promptGuidelines to its default system prompt, and this app
 // replaces that prompt, so prompt.ts also includes these lists itself.
 export const QUIZ_GUIDELINES = [
-	"quiz is GRADED; ask_user_question is not. If the question has a correct answer, use quiz. For a preference, decision, or open-ended input, use ask_user_question.",
-	"correctAnswer is REQUIRED and is the option value, not a position number. Single-select: one string. Multi-select: an array of strings.",
-	"explanation is REQUIRED: always say why the correct answer is correct.",
-	"Multi-select is graded as an exact-set match.",
-	"An 'I don't know' choice is ALWAYS added automatically. Provide ONLY the real, gradable options (at least two). Never add your own 'I don't know' or 'Not sure' option.",
-	"If a result comes back as \"I don't know\", the user honestly did not know and did NOT guess: treat it as a genuine knowledge gap to teach into, not as a wrong answer.",
-	"Any answer may carry an optional note the user typed. When present, read it and let it steer your follow-up.",
-	"Make each wrong option a specific, believable mistake (a common misconception or an easily-confused neighbour), so WHICH wrong answer the user picks reveals which part of their understanding is off.",
-	"Every distractor must be unambiguously wrong on the intended reading: tempting, not a trick.",
-	"Don't let the correct answer stand out by form (longest, most precise, most hedged). Keep options similar in length, specificity and phrasing.",
-	"Set multiSelect: true only when more than one option is correct.",
-	"question details and explanation are rendered as markdown and can contain a mermaid or svg diagram, a chart, or a find_image photo. Use this regularly (see Visuals).",
-	"Options are shuffled before display by default. Set shuffle: false only when order is meaningful.",
-	"To probe nuance, ask several quick quiz questions and adapt each to the previous answers, rather than one giant question.",
-	"Math in questions, options and explanations renders as LaTeX: use $...$ inline.",
+	`Use ${QUIZ_TOOL} whenever there is a right answer: pre-test questions, checks after teaching, and review questions. For anything without a right answer, use ${ASK_TOOL}.`,
+	"One question per call. Several short questions, each adjusted to the last answer, find gaps better than one long question.",
+	"Mark the right choice with correct: true. If more than one choice is right, mark them all; the learner then has to pick exactly those.",
+	"Every call needs an explanation, shown after the learner answers, saying why the right answer is right.",
+	"Give a wrong choice a short feedback line when you can: what thinking leads to it and where it goes wrong. The learner sees it only if they pick that choice.",
+	"Make wrong choices believable mistakes a real learner might make, but clearly wrong once understood. No trick questions.",
+	"Keep all choices similar in length and style, so the right one doesn't stand out.",
+	"The page always adds an \"I don't know yet\" button. Don't add your own. When the learner uses it, they didn't guess: treat it as something to teach, not as a mistake.",
+	"The learner can add a note to their answer. If they did, read it and respond to it.",
+	"Choices are shuffled before they're shown. Set fixed_order: true only when the order matters (for example numbers in order, or \"All of the above\" last).",
+	"question, context and explanation are markdown and can include math ($...$), a mermaid or svg diagram, a chart, or a find_image photo. Use pictures here regularly (see Visuals).",
 ];
 
 export const ASK_GUIDELINES = [
-	"Ask exactly one question per tool call; use separate calls for separate questions.",
-	'Users can always select "Other" to type a custom answer when options are provided.',
-	"Use multiSelect: true only when you need multiple answers to the same question.",
-	'If you recommend an option, make it first and add "(Recommended)" to its label.',
+	"One question per call. It must be the only card in that reply: wait for the answer before anything else.",
+	"Give choices when there are obvious answers; leave them out for a free-text reply. The learner can always type their own answer instead.",
+	"Set pick_several: true only when the learner may choose more than one.",
+	"If you'd suggest a choice, put it first and end it with \" (suggested)\".",
 ];
 
 const QuizParams = Type.Object({
-	question: Type.String({ description: "The single quiz question to ask. Ask exactly one question per tool call." }),
-	details: Type.Optional(Type.String({ description: "Optional extra context shown under the question." })),
-	options: Type.Array(OptionSchema, {
-		description:
-			"The answer options (2 or more). Options only, no free text. Give each option a stable `value`; reference the correct one by that value in correctAnswer.",
-		minItems: 2,
-	}),
-	multiSelect: Type.Optional(
-		Type.Boolean({ description: "Set to true when more than one option is correct and the user must select all of them." }),
-	),
-	correctAnswer: Type.Union([Type.String(), Type.Array(Type.String())], {
-		description:
-			'REQUIRED. The correct option value(s). Single-select: one string (e.g. "mercury"). Multi-select: an array of strings; the user is correct only if their selection matches this set exactly.',
-	}),
-	explanation: Type.String({
-		description: "REQUIRED. Explanation revealed AFTER the user answers, right or wrong. Say why the correct answer is correct.",
-	}),
-	shuffle: Type.Optional(
-		Type.Boolean({
-			description:
-				"Defaults to true: options are shuffled before display. Set false only when order is meaningful (ordered values, or 'All/None of the above' that must stay last).",
+	question: Type.String({ description: "The question, in markdown." }),
+	context: Type.Optional(Type.String({ description: "Optional extra material shown under the question: a case, a diagram, a photo." })),
+	choices: Type.Array(
+		Type.Object({
+			text: Type.String({ description: "What the learner sees for this choice." }),
+			correct: Type.Optional(Type.Boolean({ description: "true for each right choice." })),
+			feedback: Type.Optional(
+				Type.String({ description: "For a wrong choice: why someone might pick it and why it's wrong. Shown only if picked." }),
+			),
 		}),
+		{ description: "2 to 6 choices, with at least one marked correct.", minItems: 2 },
 	),
+	explanation: Type.String({ description: "Shown after the learner answers: why the right answer is right." }),
+	fixed_order: Type.Optional(Type.Boolean({ description: "true to show choices in the given order instead of shuffled." })),
 });
 
 export function createQuizTool(broker: InteractionBroker): ToolDefinition<typeof QuizParams> {
 	return {
-		name: "quiz",
+		name: QUIZ_TOOL,
 		label: "Quiz",
 		description:
-			"Ask the user a GRADED question with a known correct answer, then instantly grade and give feedback. Unlike ask_user_question (preferences/decisions with no right answer), quiz always has a correct answer supplied by you, marks the user's selection right or wrong, reveals the correct answer, and shows your explanation. Use it to (1) assess what the learner already understands before teaching, and (2) run practice/retrieval checks after explaining. Options only: single-select or multi-select, plus an automatic 'I don't know' choice so the user can signal a genuine gap instead of guessing. The user can attach an optional free-text note to any answer.",
-		promptSnippet:
-			"Use the quiz tool to test the user with a graded multiple-choice or multi-select question (required correct answer + required explanation). For non-graded questions, use ask_user_question.",
+			"Show the learner a multiple-choice question that has a right answer. The page marks their answer right or wrong, shows the right answer and your explanation, and waits for them to click Next question. Returns how they answered.",
+		promptSnippet: `${QUIZ_TOOL}: ask a graded multiple-choice question and get the learner's answer.`,
 		promptGuidelines: QUIZ_GUIDELINES,
 		parameters: QuizParams,
 		// One card at a time. In parallel mode, pi holds back every result until
@@ -200,54 +145,36 @@ export function createQuizTool(broker: InteractionBroker): ToolDefinition<typeof
 
 		async execute(toolCallId, params, signal) {
 			const question = params.question;
-			const details = params.details?.trim() || undefined;
-			const multiSelect = params.multiSelect === true;
+			const details = params.context?.trim() || undefined;
 			const explanation = params.explanation.trim();
+			const unusable = (message: string) =>
+				textResult(`This question couldn't be shown: ${message}. Fix it and ask again.`, { status: "unavailable", question, message });
+
+			let choices = (params.choices ?? [])
+				.map((c) => ({ text: c.text?.trim() ?? "", correct: isTrue(c.correct), feedback: c.feedback?.trim() || undefined }))
+				.filter((c) => c.text);
+			if (choices.length < 2) return unusable("it needs at least two choices");
+			if (!choices.some((c) => c.correct)) return unusable("no choice is marked correct: true");
+			if (!isTrue(params.fixed_order)) choices = shuffled(choices);
+
+			const multiSelect = choices.filter((c) => c.correct).length > 1;
 			const mode = multiSelect ? "multi-select" : "single-select";
-			const fail = (message: string) => textResult(message, { status: "unavailable", question, mode, message });
-
-			let options: Option[];
-			try {
-				options = normalizeOptions(params.options);
-			} catch (e) {
-				return fail(`quiz ${(e as Error).message}`);
-			}
-			if (options.length < 2) return fail("quiz requires at least two options");
-			if (params.shuffle !== false) options = shuffled(options);
-
-			// Resolve correct indices AFTER shuffling so grading matches what the user sees.
-			const byValue = new Map(options.map((o, i) => [o.value, i + 1]));
-			const correctIndices: number[] = [];
-			for (const raw of correctValues(params.correctAnswer as string | string[])) {
-				const idx = byValue.get(raw.trim());
-				if (idx === undefined) {
-					const known = options.map((o) => `"${o.value}"`).join(", ");
-					return fail(`quiz correctAnswer "${raw}" does not match any option value (${known})`);
-				}
-				if (!correctIndices.includes(idx)) correctIndices.push(idx);
-			}
-			correctIndices.sort((a, b) => a - b);
-			if (correctIndices.length === 0) return fail("quiz correctAnswer is required");
+			const options: DisplayOption[] = choices.map((c, i) => ({ index: i + 1, label: c.text }));
+			const correctIndices = options.filter((o) => choices[o.index - 1].correct).map((o) => o.index);
 
 			const asked = await broker.beforeQuiz?.(toolCallId, signal);
 			if (asked) {
-				const message = `Before seeing this quiz question, the learner asked about the section you just taught: ${asked}\nAnswer their question first, then ask this quiz question again.`;
+				const message = `The learner had a question about the section you just taught, so this quiz question wasn't shown yet. They asked: ${asked}\nAnswer them first, then ask this quiz question again.`;
 				return textResult(message, { status: "paused", question, mode, message: "You asked a question first", skippedWith: asked });
 			}
 
-			const displayOptions = toDisplay(options);
 			const answer = await broker.request<QuizAnswer>(
-				{ kind: "quiz", id: toolCallId, question, details, multiSelect, options: displayOptions },
+				{ kind: "quiz", id: toolCallId, question, details, multiSelect, options },
 				signal,
 			);
-			if (!answer) {
-				const message = "User cancelled the quiz";
-				return textResult(message, { status: "cancelled", question, mode, message });
-			}
-
+			if (!answer) return textResult("The quiz question was cancelled.", { status: "cancelled", question, mode, message: "Cancelled" });
 			if (answer.skippedWith !== undefined) {
-				const message = `User skipped the quiz without answering and wrote instead: ${answer.skippedWith}`;
-				return textResult(message, {
+				return textResult(`The learner didn't answer the quiz question. They wrote instead: ${answer.skippedWith}`, {
 					status: "cancelled",
 					question,
 					mode,
@@ -262,96 +189,74 @@ export function createQuizTool(broker: InteractionBroker): ToolDefinition<typeof
 				? []
 				: [...new Set(answer.selected ?? [])].filter((i) => i >= 1 && i <= options.length).sort((a, b) => a - b);
 			const correct =
-				!dontKnow &&
-				selected.length === correctIndices.length &&
-				selected.every((v, i) => v === correctIndices[i]);
-			const ref = (i: number) => `${i}. ${options[i - 1].label}`;
-			const correctStr = correctIndices.map(ref).join(", ");
+				!dontKnow && selected.length === correctIndices.length && selected.every((v, i) => v === correctIndices[i]);
+			const feedback = selected
+				.filter((i) => !choices[i - 1].correct && choices[i - 1].feedback)
+				.map((i) => choices[i - 1].feedback as string);
+			const quote = (i: number) => `"${options[i - 1].label}"`;
+			const rightAnswer = correctIndices.map(quote).join(" and ");
 
-			let text: string;
-			if (dontKnow) {
-				text = `User selected "I don't know" — they did not attempt an answer (a genuine knowledge gap, not a wrong guess).\nCorrect: ${correctStr}`;
-			} else {
-				text = `User answered ${correct ? "correctly" : "incorrectly"}.\nSelected: ${selected.map(ref).join(", ")}\nCorrect: ${correctStr}`;
-			}
-			if (note) text += `\nUser's note: ${note}`;
-			if (explanation) text += `\nExplanation: ${explanation}`;
+			const lines = [`Question: ${question}`];
+			if (dontKnow) lines.push(`The learner pressed "I don't know yet" (an honest gap, not a guess). The right answer: ${rightAnswer}.`);
+			else if (correct) lines.push(`The learner got it right: ${selected.map(quote).join(" and ")}.`);
+			else lines.push(`The learner got it wrong. They chose ${selected.map(quote).join(" and ") || "nothing"}; the right answer: ${rightAnswer}.`);
+			if (note) lines.push(`Their note: ${note}`);
+			lines.push("They have seen your explanation. Build on what this answer shows about their understanding.");
 
 			const result = {
 				status: "answered",
 				question,
 				context: details,
 				mode,
-				options: displayOptions,
-				answers: selected.map((i) => ({ index: i, label: options[i - 1].label, value: options[i - 1].value })),
+				options,
+				answers: selected.map((i) => ({ index: i, label: options[i - 1].label })),
 				correctIndices,
 				correct,
 				dontKnow,
 				note,
 				explanation,
+				feedback,
 			};
 			// Let the learner read the feedback; the lesson goes on when they click
 			// "Next question" (or type a message).
 			await broker.request({ kind: "graded", id: toolCallId, result }, signal);
-			return textResult(text, result);
+			return textResult(lines.join("\n"), result);
 		},
 	};
 }
 
 const AskParams = Type.Object({
-	question: Type.String({ description: "The single question to ask the user. Ask exactly one question per tool call." }),
-	details: Type.Optional(Type.String({ description: "Optional extra context shown under the question." })),
-	options: Type.Optional(
-		Type.Array(
-			Type.Object({
-				label: Type.String({
-					description:
-						'Display label for the option. If you recommend an option, place it first and append "(Recommended)" to the label.',
-				}),
-				value: Type.Optional(Type.String({ description: "Optional machine-readable value. Defaults to the label." })),
-				description: Type.Optional(Type.String({ description: "Optional extra detail shown below the option." })),
-			}),
-			{
-				description:
-					"Optional multiple-choice options. Omit or pass an empty array for free-form text input. Users can always choose Other and type a custom answer when options are provided.",
-			},
-		),
+	question: Type.String({ description: "The question, in markdown." }),
+	context: Type.Optional(Type.String({ description: "Optional extra detail shown under the question." })),
+	choices: Type.Optional(
+		Type.Array(Type.String(), { description: "Answers to pick from. Leave out for a free-text reply." }),
 	),
-	multiSelect: Type.Optional(Type.Boolean({ description: "Set to true to allow multiple answers to be selected." })),
+	pick_several: Type.Optional(Type.Boolean({ description: "true if the learner may pick more than one choice." })),
 });
 
 export function createAskTool(broker: InteractionBroker): ToolDefinition<typeof AskParams> {
 	return {
-		name: "ask_user_question",
+		name: ASK_TOOL,
 		label: "Question",
 		description:
-			"Ask the user a single question and pause until they answer. Use this when requirements are ambiguous, user preferences are needed, or a decision would materially affect what you do next. Ask exactly one question per tool call.",
-		promptSnippet:
-			"Use this tool to ask exactly one clarifying, preference, or decision question (no right answer) before continuing.",
+			"Ask the learner something that has no right answer, such as their goal, a choice about the lesson, or a free-text reply, and wait for their answer.",
+		promptSnippet: `${ASK_TOOL}: ask the learner one question with no right answer and wait for the reply.`,
 		promptGuidelines: ASK_GUIDELINES,
 		parameters: AskParams,
 		executionMode: "sequential",
 
 		async execute(toolCallId, params, signal) {
 			const question = params.question;
-			const details = params.details?.trim() || undefined;
-			let options: Option[];
-			try {
-				options = normalizeOptions(params.options);
-			} catch {
-				options = (params.options ?? []).map((o) => ({ label: o.label.trim(), value: o.label.trim() }));
-			}
-			const mode = options.length === 0 ? "text" : params.multiSelect ? "multi-select" : "single-select";
-			const displayOptions = toDisplay(options);
+			const details = params.context?.trim() || undefined;
+			const labels = [...new Set((params.choices ?? []).map((c) => String(c).trim()).filter(Boolean))];
+			const mode = labels.length === 0 ? "text" : isTrue(params.pick_several) ? "multi-select" : "single-select";
+			const options: DisplayOption[] = labels.map((label, i) => ({ index: i + 1, label }));
 
 			const answer = await broker.request<AskAnswer>(
-				{ kind: "ask", id: toolCallId, question, details, mode, options: displayOptions },
+				{ kind: "ask", id: toolCallId, question, details, mode, options },
 				signal,
 			);
-			if (!answer) {
-				const message = "User cancelled the question";
-				return textResult(message, { status: "cancelled", question, mode, message });
-			}
+			if (!answer) return textResult("The question was cancelled.", { status: "cancelled", question, mode, message: "Cancelled" });
 
 			const answers: Array<{ type: "text" | "option" | "other"; label: string; index?: number }> = [];
 			if (mode === "text") {
@@ -364,20 +269,11 @@ export function createAskTool(broker: InteractionBroker): ToolDefinition<typeof 
 				if (other) answers.push({ type: "other", label: other });
 			}
 
-			const fmt = (a: (typeof answers)[number]) =>
-				a.type === "option" ? `${a.index}. ${a.label}` : a.type === "other" ? `Other: ${a.label}` : a.label;
-			let text: string;
-			if (mode === "text") {
-				text = answers[0].label ? `User answered: ${answers[0].label}` : "User submitted an empty response";
-			} else if (answers.length === 0) {
-				text = "User submitted without choosing an option";
-			} else if (mode === "single-select") {
-				text = `User selected: ${fmt(answers[0])}`;
-			} else {
-				text = `User selected:\n${answers.map((a) => `- ${fmt(a)}`).join("\n")}`;
-			}
-
-			return textResult(text, { status: "answered", question, context: details, mode, options: displayOptions, answers });
+			const said = answers.map((a) => (a.type === "other" ? `(in their own words) ${a.label}` : a.label)).filter(Boolean);
+			const text = said.length
+				? `Question: ${question}\nThe learner answered: ${said.join("; ")}`
+				: `Question: ${question}\nThe learner sent an empty answer.`;
+			return textResult(text, { status: "answered", question, context: details, mode, options, answers });
 		},
 	};
 }

@@ -19,16 +19,16 @@ Using this interface:
 - Draw diagrams yourself as mermaid or svg code blocks: one idea per picture, fewest elements that make it clear. Double-check every label and arrow before sending; a wrong diagram is worse than none.
 - For real photos, scans and medical images, use the \`find_image\` tool (see "Visuals" below). Never write an image link yourself.
 - Accuracy is on you. Only state facts you are confident of. When you are not sure of a fact, name, date or formula, say so plainly instead of guessing, and offer what you do know with that caveat.
-- The \`quiz\` and \`ask_user_question\` tools appear as clickable cards in the page. Use \`quiz\` for every pre-test, check and review question in the method, and \`ask_user_question\` when you need the learner to choose.
+- The \`quiz_question\` and \`ask_learner\` tools appear as clickable cards in the page. Use \`quiz_question\` for every pre-test, check and review question in the method, and \`ask_learner\` when you need the learner to choose or reply.
 - The learner may be new to the subject and to this app. Keep messages readable: short paragraphs, clear structure, no walls of text.
 
 # Lesson flow rules (always follow these; they take priority over the method's ordering)
 
 ## One card at a time
-- Cards are shown one at a time, in the order you call them. An \`ask_user_question\` card must always be the only card in its reply: never put a quiz (or a second question) in the same reply as an \`ask_user_question\`. Ask, wait for the answer, then continue.
+- Cards are shown one at a time, in the order you call them. An \`ask_learner\` card must always be the only card in its reply: never put a quiz (or a second question) in the same reply as an \`ask_learner\`. Ask, wait for the answer, then continue.
 
 ## Starting a new topic
-Before any pre-test question, in this order, each as its own \`ask_user_question\` and waiting for the answer each time:
+Before any pre-test question, in this order, each as its own \`ask_learner\` and waiting for the answer each time:
 1. Ask what the learner wants out of the topic, with these options (word for word, in this order); they can also type their own answer:
    - "I am a GP looking to review this topic to keep my practice up to date"
    - "I am a medical student or resident studying to build and improve my knowledge base"
@@ -57,7 +57,7 @@ This learner asked for pictures throughout the lesson: they vary the pace and ke
 Required:
 - The plan always includes its map, drawn as a mermaid diagram.
 - Every section you teach includes at least one visual.
-- In the pre-test and practice questions, about every other quiz question or its explanation includes a visual when the topic allows: a diagram, chart or image in the question's \`details\` ("What does the arrow in this X-ray show?") or a small diagram in the \`explanation\` showing why the answer is right.
+- In the pre-test and practice questions, about every other quiz question or its explanation includes a visual when the topic allows: a diagram, chart or image in the question's \`context\` ("What does the arrow in this X-ray show?") or a small diagram in the \`explanation\` showing why the answer is right.
 - Never go more than two replies in a row without one. The app will remind you if you do.
 
 Kinds of visuals, pick whatever fits:
@@ -78,7 +78,7 @@ export function buildTeachingPrompt(): string[] {
 		.replace(/<!--[\s\S]*?-->/g, "")
 		.trim();
 	const bullets = (items: string[]) => items.map((g) => `- ${g}`).join("\n");
-	const toolNotes = `# Using the quiz, ask_user_question and find_image tools\n\n## quiz\n${bullets(QUIZ_GUIDELINES)}\n\n## ask_user_question\n${bullets(ASK_GUIDELINES)}\n\n## find_image\n${bullets(IMAGE_GUIDELINES)}`;
+	const toolNotes = `# Using the quiz_question, ask_learner and find_image tools\n\n## quiz_question\n${bullets(QUIZ_GUIDELINES)}\n\n## ask_learner\n${bullets(ASK_GUIDELINES)}\n\n## find_image\n${bullets(IMAGE_GUIDELINES)}`;
 	// Visuals go last: models drift back to plain text, and the rule that comes
 	// last is the one they weigh most.
 	return [INTERFACE_NOTES, toolNotes, `# The teaching method (always active)\n\n${body}`, VISUALS];

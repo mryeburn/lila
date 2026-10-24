@@ -14,10 +14,10 @@ import { buildLibrary, illustrate } from "./illustrator.ts";
 import { type Candidate, createImageTool } from "./images.ts";
 import { asMessage, type Material, parseMessage } from "./materials.ts";
 import { BASE_PROMPT, buildTeachingPrompt } from "./prompt.ts";
-import { createAskTool, createQuizTool, type InteractionBroker, type PendingInteraction } from "./tools.ts";
+import { ASK_TOOL, createAskTool, createQuizTool, type InteractionBroker, type PendingInteraction, QUIZ_TOOL } from "./tools.ts";
 import type { LessonSummary, ServerMessage, TranscriptItem, TutorState } from "./protocol.ts";
 
-const TOOL_NAMES = ["quiz", "ask_user_question"];
+const TOOL_NAMES = [QUIZ_TOOL, ASK_TOOL];
 // Default model per provider when the learner hasn't picked one: the newest
 // matching id wins.
 const DEFAULT_MODELS: Array<[string, RegExp]> = [
@@ -267,10 +267,10 @@ export class Tutor implements InteractionBroker {
 						text = "";
 						part++;
 						const item = {
-							kind: block.name === "quiz" ? ("quiz" as const) : ("ask" as const),
+							kind: block.name === QUIZ_TOOL ? ("quiz" as const) : ("ask" as const),
 							id: block.id as string,
 							question: String(block.arguments?.question ?? ""),
-							details: block.arguments?.details as string | undefined,
+							details: block.arguments?.context as string | undefined,
 							result: null,
 						};
 						byToolCall.set(item.id, item);
@@ -477,7 +477,7 @@ export class Tutor implements InteractionBroker {
 	private visualReminder(tagged = false): string {
 		const n = this.repliesWithoutVisual();
 		if (n < 2) return "";
-		const note = `Note from the Pi Learn app, not from the learner: your last ${n} replies had no visual. Include a fitting diagram, chart or find_image photo in your next reply, or in the details or explanation of your next quiz.`;
+		const note = `Note from the Pi Learn app, not from the learner: your last ${n} replies had no visual. Include a fitting diagram, chart or find_image photo in your next reply, or in the context or explanation of your next quiz question.`;
 		return tagged ? `\n\n<app-note>${note}</app-note>` : `\n\n[${note}]`;
 	}
 
@@ -665,7 +665,8 @@ export class Tutor implements InteractionBroker {
 					const mark = item.kind === "quiz" ? (key ? "✓" : chosen ? "✗" : "-") : chosen ? "●" : "-";
 					lines.push(`${mark} ${o.label}`);
 				}
-				if (r?.dontKnow) lines.push("", "_Answered: I don't know_");
+				if (r?.dontKnow) lines.push("", "_Answered: I don't know yet_");
+				for (const f of r?.feedback ?? []) lines.push("", `_About your answer: ${f}_`);
 				for (const a of r?.answers ?? []) if (a.type === "other" || a.type === "text") lines.push("", `_Answer: ${a.label}_`);
 				if (r?.note) lines.push("", `_Note: ${r.note}_`);
 				if (r?.explanation) lines.push("", r.explanation);

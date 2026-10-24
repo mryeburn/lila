@@ -612,6 +612,19 @@ button.option:not(:disabled):hover {
 	color: var(--muted);
 	font-style: italic;
 }
+.choice-feedback {
+	margin-top: 10px;
+	padding: 10px 14px;
+	background: var(--wrong-soft);
+	border-left: 3px solid var(--wrong);
+	border-radius: 10px;
+	font-family: var(--reading);
+	font-size: 16px;
+	line-height: 1.55;
+}
+.choice-feedback p {
+	margin: 0;
+}
 .explanation {
 	margin-top: 10px;
 	padding: 12px 14px;
