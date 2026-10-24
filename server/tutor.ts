@@ -9,6 +9,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
 import { type AppSettings, loadSettings, SESSIONS_DIR, saveSettings, WORKSPACE_DIR } from "./config.ts";
+import { createImageTool } from "./images.ts";
 import { asMessage, type Material, parseMessage } from "./materials.ts";
 import { BASE_PROMPT, buildTeachingPrompt } from "./prompt.ts";
 import { createAskTool, createQuizTool, type InteractionBroker, type PendingInteraction } from "./tools.ts";
@@ -218,8 +219,12 @@ export class Tutor implements InteractionBroker {
 			thinkingLevel: thinking,
 			resourceLoader: loader,
 			sessionManager,
-			tools: TOOL_NAMES,
-			customTools: [createQuizTool(this), createAskTool(this)],
+			tools: [...TOOL_NAMES, "find_image"],
+			customTools: [
+				createQuizTool(this),
+				createAskTool(this),
+				createImageTool(() => this.session?.model?.input?.includes("image") ?? false),
+			],
 		});
 		this.session = session;
 		this.unsubscribe = session.subscribe((event) => this.onEvent(event));

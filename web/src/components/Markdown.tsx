@@ -10,7 +10,13 @@ let mermaidPromise: Promise<typeof import("mermaid").default> | null = null;
 function loadMermaid() {
 	mermaidPromise ??= import("mermaid").then(({ default: mermaid }) => {
 		const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-		mermaid.initialize({ startOnLoad: false, theme: dark ? "dark" : "neutral", securityLevel: "strict" });
+		mermaid.initialize({
+			startOnLoad: false,
+			theme: dark ? "dark" : "neutral",
+			securityLevel: "strict",
+			// The neutral theme draws chart lines in pale grey; use the app's colors.
+			themeVariables: { xyChart: { plotColorPalette: "#6366f1, #16a34a, #dc2626, #d97706, #0891b2" } },
+		});
 		return mermaid;
 	});
 	return mermaidPromise;
@@ -48,6 +54,32 @@ function SvgPicture({ code }: { code: string }) {
 	return <div className="diagram picture" dangerouslySetInnerHTML={{ __html: clean }} />;
 }
 
+// Photos may only come from the trusted libraries the tutor's find_image tool
+// searches (server/images.ts), so an invented link can never show up.
+const IMAGE_HOSTS = ["upload.wikimedia.org", "openi.nlm.nih.gov"];
+
+function Photo({ src, alt, title }: { src?: string; alt?: string; title?: string }) {
+	let ok = false;
+	try {
+		const u = new URL(src ?? "");
+		ok = u.protocol === "https:" && IMAGE_HOSTS.includes(u.hostname);
+	} catch {
+		// Not a URL.
+	}
+	const [failed, setFailed] = useState(false);
+	if (!ok || failed) return null;
+	// Spans, not <figure>: Markdown puts images inside paragraphs.
+	return (
+		<span className="photo">
+			<a href={src} target="_blank" rel="noreferrer noopener" title="Open full size">
+				<img src={src} alt={alt ?? ""} loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />
+			</a>
+			{alt && <span className="photo-caption">{alt}</span>}
+			{title && <span className="photo-credit">{title}</span>}
+		</span>
+	);
+}
+
 function makeComponents(streaming: boolean, inline: boolean): Components {
 	return {
 		...(inline ? { p: ({ children }) => <span>{children}</span> } : {}),
@@ -56,6 +88,7 @@ function makeComponents(streaming: boolean, inline: boolean): Components {
 				{children}
 			</a>
 		),
+		img: ({ src, alt, title }) => <Photo src={typeof src === "string" ? src : undefined} alt={alt} title={title} />,
 		pre: ({ children }) => <>{children}</>,
 		code: ({ className, children }) => {
 			const lang = /language-(\w+)/.exec(className ?? "")?.[1];
