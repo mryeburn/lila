@@ -33,6 +33,8 @@ const APP_NOTE = /\s*<app-note>[\s\S]*?<\/app-note>\s*$/;
 
 // Teaching text at least this long, with no picture, gets one from the app.
 const MIN_SECTION_LENGTH = 400;
+/** Outcomes of a quiz or question card the learner actually saw. */
+const SHOWN = ["answered", "cancelled", "paused"];
 /** What the page sends when the learner has no questions after a section. */
 const CONTINUE_TEXT = "No questions, please continue.";
 
@@ -319,7 +321,12 @@ export class Tutor implements InteractionBroker {
 			if (pictures) item.pictures = pictures;
 			if (this.pictures.drawing.has(item.id)) item.drawing = true;
 		}
-		return items;
+		// A call that failed (bad arguments, a question that couldn't be shown)
+		// never reached the learner and the tutor asks again, so leave it out
+		// rather than show an empty card.
+		return items.filter(
+			(item) => !((item.kind === "quiz" || item.kind === "ask") && item.result && !SHOWN.includes((item.result as any).status)),
+		);
 	}
 
 	async lessons(): Promise<LessonSummary[]> {
