@@ -97,8 +97,8 @@ function Item({ item, store }: { item: TranscriptItem; store: TutorStore }) {
 			if (pending?.kind === "pause")
 				return (
 					<QuestionsInvite
-						text="If you have a question about this section, type it in here. Otherwise, continue the quiz."
-						continueLabel="Next quiz question →"
+						text="If you have a question about this section, type it in here. Otherwise, start the quiz."
+						continueLabel="Start the quiz →"
 						onContinue={() => answer({})}
 						onAsk={(text) => answer({ text })}
 					/>
@@ -151,12 +151,17 @@ export function App() {
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 	/** Set when the learner pressed "Check for updates", so the answer is shown even when there's nothing new. */
 	const checkedByHand = useRef(false);
+	/** Shown on the update button for a few seconds after a check found nothing new. */
+	const [upToDate, setUpToDate] = useState(false);
 
 	useEffect(() => {
 		const update = store.update;
 		if (!checkedByHand.current || !update || update.state === "checking") return;
 		checkedByHand.current = false;
-		if (update.state === "current") store.showToast("You have the latest version of LILA.");
+		if (update.state === "current") {
+			setUpToDate(true);
+			setTimeout(() => setUpToDate(false), 5000);
+		}
 		if (update.state === "error") store.showToast(update.error ?? "Couldn't check for updates.");
 	}, [store.update, store.showToast]);
 
@@ -255,19 +260,31 @@ export function App() {
 						</button>
 					))}
 				</div>
-				{store.update?.supported && (
-					<button
-						type="button"
-						className="secondary wide"
-						disabled={store.update.state === "checking" || store.update.state === "updating"}
-						onClick={() => {
-							checkedByHand.current = true;
-							send({ type: "check_update" });
-						}}
-					>
-						{store.update.state === "checking" ? "Checking for updates…" : "⟳ Check for updates"}
-					</button>
-				)}
+				{/* Checking for, offering and running updates all happen on this one button. */}
+				{store.update?.supported &&
+					(store.update.state === "available" ? (
+						<button type="button" className="update-ready wide" onClick={() => send({ type: "start_update" })}>
+							⬇ Update now
+						</button>
+					) : (
+						<button
+							type="button"
+							className={`secondary wide ${store.update.state === "updating" ? "update-running" : ""} ${upToDate ? "update-current" : ""}`}
+							disabled={store.update.state === "checking" || store.update.state === "updating" || upToDate}
+							onClick={() => {
+								checkedByHand.current = true;
+								send({ type: "check_update" });
+							}}
+						>
+							{store.update.state === "checking"
+								? "Checking for updates…"
+								: store.update.state === "updating"
+									? "Updating… the page will reload by itself"
+									: upToDate
+										? "✓ LILA is up to date"
+										: "⟳ Check for updates"}
+						</button>
+					))}
 				<button type="button" className="secondary wide" onClick={() => setSettingsOpen(true)}>
 					⚙ Settings
 				</button>
@@ -296,19 +313,6 @@ export function App() {
 				</header>
 
 				{!connected && <div className="banner">Reconnecting to LILA… Is the app still running in your terminal?</div>}
-				{store.update?.state === "available" && (
-					<div className="banner update-banner">
-						<span>A new version of LILA is available.</span>
-						<button type="button" className="primary small" onClick={() => send({ type: "start_update" })}>
-							Update now
-						</button>
-					</div>
-				)}
-				{store.update?.state === "updating" && (
-					<div className="banner update-banner">
-						Updating LILA. This takes a minute or two; the page will reload by itself.
-					</div>
-				)}
 				{state?.error && <div className="banner error">{state.error}</div>}
 
 				<div

@@ -218,6 +218,17 @@ export class Tutor implements InteractionBroker {
 	}
 
 	/** After a long teaching section, the lesson pauses for questions before the quiz. */
+	/**
+	 * Set when the learner types while the tutor is mid-reply. The tutor may have
+	 * queued several cards at once and only reads the message after they've all
+	 * run, so the rest are held back until its next reply starts.
+	 */
+	private learnerSpoke = false;
+
+	learnerWaiting(): boolean {
+		return this.learnerSpoke;
+	}
+
 	async beforeQuiz(toolCallId: string, signal: AbortSignal | undefined): Promise<string | undefined> {
 		const messages = (this.session?.messages ?? []) as any[];
 		const at = messages.findIndex(
@@ -455,6 +466,7 @@ export class Tutor implements InteractionBroker {
 		// message would queue behind it forever. Use the text as the card's answer.
 		// A graded quiz just waits for "Next question", so it's dismissed and the
 		// text goes to the tutor as a normal message.
+		if (session.isStreaming) this.learnerSpoke = true;
 		for (const { interaction, resolve } of [...this.pending.values()]) {
 			if (interaction.kind !== "graded") continue;
 			// Typed right after a quiz answer: a follow-up question about it.
@@ -728,11 +740,15 @@ export class Tutor implements InteractionBroker {
 				break;
 			case "agent_settled":
 				this.busy = false;
+				this.learnerSpoke = false;
 				this.streamingText = null;
 				this.broadcast({ type: "transcript", items: this.transcript() });
 				this.broadcast({ type: "streaming", text: null });
 				void this.pushState();
 				void this.lessons().then((lessons) => this.broadcast({ type: "lessons", lessons }));
+				break;
+			case "message_start":
+				if ((event as any).message?.role === "assistant") this.learnerSpoke = false;
 				break;
 			case "message_update": {
 				const partial = (event as any).message;
