@@ -67,7 +67,9 @@ Kinds of visuals, pick whatever fits:
 - svg drawings (\`\`\`svg) for labelled schematics, anatomy sketches, curves and geometry.
 - real photos, scans and micrographs from \`find_image\` (X-rays, CT, skin findings, instruments, histology). Prefer these for anything where what it really looks like matters.
 
-Every visual must be accurate and support the text; double-check labels. Markdown tables are welcome too but don't count as a visual.`;
+Every visual must be accurate and support the text; double-check labels. Markdown tables are welcome too but don't count as a visual.
+
+The app also adds pictures by itself under long explanations and some quiz answers, and the learner can ask for one with a button. You don't see these. If the learner asks about "the picture" or "the diagram" and you didn't make one, ask them what it shows rather than guessing.`;
 
 /** Builds the appended system prompt: interface notes plus the teach skill. */
 export function buildTeachingPrompt(teachSkillDir: string): string[] {

@@ -16,7 +16,7 @@ export const IMAGE_HOSTS = ["upload.wikimedia.org", "openi.nlm.nih.gov"];
 const USER_AGENT = "PiLearn/1.0 (https://github.com/mryeburn/pi-learn-userfriendlyinterface)";
 const MAX_RESULTS = 4;
 
-interface Candidate {
+export interface Candidate {
 	url: string;
 	thumb: string;
 	title: string;
@@ -24,7 +24,7 @@ interface Candidate {
 	page: string;
 }
 
-const KINDS = {
+export const KINDS = {
 	any: "",
 	xray: "x",
 	ct: "c",
@@ -69,18 +69,7 @@ export function createImageTool(canSeeImages: () => boolean): ToolDefinition<typ
 		parameters: Params,
 
 		async execute(_toolCallId, params, signal) {
-			const source = params.source ?? "any";
-			const kind = KINDS[(params.kind ?? "any") as keyof typeof KINDS] ?? "";
-			const searches: Promise<Candidate[]>[] = [];
-			if (source !== "wikimedia") searches.push(searchOpenI(params.query, kind, signal).catch(() => []));
-			if (source !== "clinical") searches.push(searchCommons(params.query, signal).catch(() => []));
-			// Alternate between libraries so both are represented.
-			const [a = [], b = []] = await Promise.all(searches);
-			const mixed: Candidate[] = [];
-			for (let i = 0; mixed.length < MAX_RESULTS && i < Math.max(a.length, b.length); i++) {
-				if (a[i]) mixed.push(a[i]);
-				if (b[i] && mixed.length < MAX_RESULTS) mixed.push(b[i]);
-			}
+			const mixed = await searchImages(params.query, params.source ?? "any", params.kind ?? "any", signal);
 			if (mixed.length === 0) {
 				const text = `No images found for "${params.query}". Try simpler or different words, or draw a diagram instead.`;
 				return { content: [{ type: "text" as const, text }], details: { query: params.query, count: 0 } };
@@ -105,6 +94,26 @@ export function createImageTool(canSeeImages: () => boolean): ToolDefinition<typ
 			return { content, details: { query: params.query, count: mixed.length } };
 		},
 	};
+}
+
+/** Searches the libraries and returns up to four candidates, alternating between them. */
+export async function searchImages(
+	query: string,
+	source: "any" | "wikimedia" | "clinical",
+	kindName: string,
+	signal?: AbortSignal,
+): Promise<Candidate[]> {
+	const kind = KINDS[kindName as keyof typeof KINDS] ?? "";
+	const searches: Promise<Candidate[]>[] = [];
+	if (source !== "wikimedia") searches.push(searchOpenI(query, kind, signal).catch(() => []));
+	if (source !== "clinical") searches.push(searchCommons(query, signal).catch(() => []));
+	const [a = [], b = []] = await Promise.all(searches);
+	const mixed: Candidate[] = [];
+	for (let i = 0; mixed.length < MAX_RESULTS && i < Math.max(a.length, b.length); i++) {
+		if (a[i]) mixed.push(a[i]);
+		if (b[i] && mixed.length < MAX_RESULTS) mixed.push(b[i]);
+	}
+	return mixed;
 }
 
 async function getJson(url: string, signal?: AbortSignal): Promise<any> {
@@ -174,7 +183,7 @@ async function searchOpenI(query: string, kind: string, signal?: AbortSignal): P
 	return out.filter((c) => isAllowedImage(c.url)).slice(0, MAX_RESULTS);
 }
 
-async function fetchThumb(url: string, signal?: AbortSignal): Promise<{ data: string; mimeType: string } | undefined> {
+export async function fetchThumb(url: string, signal?: AbortSignal): Promise<{ data: string; mimeType: string } | undefined> {
 	try {
 		const res = await fetch(url, {
 			headers: { "user-agent": USER_AGENT },

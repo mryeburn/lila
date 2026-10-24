@@ -13,6 +13,44 @@ const STARTERS = [
 	"Teach me the basics of music theory",
 ];
 
+// Short tutor messages ("Great, let's start") don't get a picture button.
+const MIN_PICTURE_TEXT = 120;
+
+/** Pictures the app added under a tutor message or quiz, and the button to ask for one. */
+function Pictures({
+	id,
+	pictures,
+	drawing,
+	canAsk,
+	store,
+}: {
+	id: string;
+	pictures?: string[];
+	drawing?: boolean;
+	canAsk: boolean;
+	store: TutorStore;
+}) {
+	if (!pictures?.length && !drawing && !canAsk) return null;
+	return (
+		<div className="app-pictures">
+			{pictures?.map((picture) => (
+				<div className="app-picture" key={picture}>
+					<Markdown text={picture} onBroken={() => store.send({ type: "picture_broken", id, picture })} />
+				</div>
+			))}
+			{drawing ? (
+				<div className="picture-button drawing">🖼 Making a picture…</div>
+			) : (
+				canAsk && (
+					<button type="button" className="picture-button" onClick={() => store.send({ type: "illustrate", id })}>
+						🖼 {pictures?.length ? "Show me another picture" : "Show me a picture"}
+					</button>
+				)
+			)}
+		</div>
+	);
+}
+
 function Item({ item, store }: { item: TranscriptItem; store: TutorStore }) {
 	switch (item.kind) {
 		case "user":
@@ -25,6 +63,13 @@ function Item({ item, store }: { item: TranscriptItem; store: TutorStore }) {
 			return (
 				<div className="msg tutor">
 					<Markdown text={item.text} />
+					<Pictures
+						id={item.id}
+						pictures={item.pictures}
+						drawing={item.drawing}
+						canAsk={item.text.trim().length >= MIN_PICTURE_TEXT}
+						store={store}
+					/>
 				</div>
 			);
 		case "error":
@@ -47,13 +92,23 @@ function Item({ item, store }: { item: TranscriptItem; store: TutorStore }) {
 			const answer = (answer: unknown) => store.send({ type: "answer", id: item.id, answer });
 			if (pending?.kind === "quiz") return <QuizCard quiz={pending} onAnswer={answer} />;
 			if (pending?.kind === "ask") return <AskCard ask={pending} onAnswer={answer} />;
+			const pictures =
+				item.kind === "quiz" ? (
+					<Pictures id={item.id} pictures={item.pictures} drawing={item.drawing} canAsk store={store} />
+				) : null;
 			if (pending?.kind === "graded")
 				return (
-					<QuizResult question={item.question} details={item.details} result={pending.result} onNext={() => answer({})} />
+					<QuizResult
+						question={item.question}
+						details={item.details}
+						result={pending.result}
+						onNext={() => answer({})}
+						pictures={pictures}
+					/>
 				);
 			if (item.result) {
 				return item.kind === "quiz" ? (
-					<QuizResult question={item.question} details={item.details} result={item.result} />
+					<QuizResult question={item.question} details={item.details} result={item.result} pictures={pictures} />
 				) : (
 					<AskResult question={item.question} details={item.details} result={item.result} />
 				);

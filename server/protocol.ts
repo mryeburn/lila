@@ -9,7 +9,16 @@ export type { UpdateStatus } from "./update.ts";
 
 export type TranscriptItem =
 	| { kind: "user"; text: string }
-	| { kind: "assistant"; text: string }
+	| {
+			kind: "assistant";
+			/** Identifies this part of the tutor's message, for pictures. */
+			id: string;
+			text: string;
+			/** Pictures the app added (markdown), shown after the text. */
+			pictures?: string[];
+			/** True while the app is making a picture for it. */
+			drawing?: boolean;
+	  }
 	| { kind: "error"; text: string }
 	/** The learner's own learning material (a file or web page), shown compactly. */
 	| { kind: "resource"; name: string; source: string; chars: number; truncated: boolean }
@@ -20,6 +29,8 @@ export type TranscriptItem =
 			details?: string;
 			/** The tool's result details once answered; null while waiting. */
 			result: any | null;
+			pictures?: string[];
+			drawing?: boolean;
 	  };
 
 export interface TutorState {
@@ -98,5 +109,9 @@ export type ClientMessage =
 	| { type: "logout"; provider: string }
 	| { type: "add_file"; name: string; data: string }
 	| { type: "add_link"; url: string }
+	/** "Show me a picture" under a tutor message or answered quiz. */
+	| { type: "illustrate"; id: string }
+	/** A picture the app added couldn't be shown. */
+	| { type: "picture_broken"; id: string; picture: string }
 	| { type: "check_update" }
 	| { type: "start_update" };

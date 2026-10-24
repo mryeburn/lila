@@ -98,6 +98,7 @@ Browser (React)  ⇄  WebSocket  ⇄  Local Node server  ⇄  pi SDK  ⇄  your 
 - The method is always on: it's added to the tutor's instructions along with a short note about how this interface differs from the terminal setup.
 - The terminal popups for `quiz` and `ask_user_question` are replaced by browser versions with the same names, inputs and results, so the method works unchanged. The correct answer never reaches the browser until you've answered.
 - The tutor has no file or shell access. It can only talk to you and ask questions.
+- Pictures: besides the diagrams the tutor draws, the app makes sure the lesson stays visual. A long explanation, or every other answered quiz, that comes without a picture gets one from a separate small AI request (a diagram, a chart or a photo from Wikimedia Commons or the NLM's Open-i). Under each tutor message there's a 🖼 **Show me a picture** button. These pictures are saved next to the lesson file (`*.pictures.json`).
 - Lessons are saved as pi session files in `~/.pi-learn-web/lessons`. App settings live in `~/.pi-learn-web/settings.json`.
 - The server only listens on your own computer (`127.0.0.1`), so nobody else on your network can use your AI account through it.
 
