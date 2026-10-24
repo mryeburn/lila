@@ -1,5 +1,5 @@
 import * as fs from "node:fs";
-import * as path from "node:path";
+import { TEACHING_FILE } from "./config.ts";
 import { IMAGE_GUIDELINES } from "./images.ts";
 import { ASK_GUIDELINES, QUIZ_GUIDELINES } from "./tools.ts";
 
@@ -15,12 +15,11 @@ The learner reads everything in a web page, not a terminal. The page renders, in
 - Diagrams written as \`\`\`mermaid code blocks (graphs, flowcharts, sequence diagrams, timelines). Put labels with punctuation in quotes, e.g. A["f(x) = x²"].
 - Pictures written as \`\`\`svg code blocks containing one complete <svg> element with a viewBox. Use these for geometry, number lines, vectors and plots.
 
-Adapting the teaching method to this interface:
-- Wherever the method mentions Obsidian or the md-log file, that means this page. Everything you write is shown here.
-- Subagents (researcher, svg-maker, mermaid-maker) and the visualize skill are not available. Draw diagrams yourself as mermaid or svg code blocks: one idea per picture, fewest elements that make it clear. Double-check every label and arrow before sending; a wrong diagram is worse than none.
+Using this interface:
+- Draw diagrams yourself as mermaid or svg code blocks: one idea per picture, fewest elements that make it clear. Double-check every label and arrow before sending; a wrong diagram is worse than none.
 - For real photos, scans and medical images, use the \`find_image\` tool (see "Visuals" below). Never write an image link yourself.
-- Without the researcher, accuracy is on you. Only state facts you are confident of. When you are not sure of a fact, name, date or formula, say so plainly instead of guessing, and offer what you do know with that caveat.
-- The \`quiz\` and \`ask_user_question\` tools appear as clickable cards in the page. Use them exactly as the method describes.
+- Accuracy is on you. Only state facts you are confident of. When you are not sure of a fact, name, date or formula, say so plainly instead of guessing, and offer what you do know with that caveat.
+- The \`quiz\` and \`ask_user_question\` tools appear as clickable cards in the page. Use \`quiz\` for every pre-test, check and review question in the method, and \`ask_user_question\` when you need the learner to choose.
 - The learner may be new to the subject and to this app. Keep messages readable: short paragraphs, clear structure, no walls of text.
 
 # Lesson flow rules (always follow these; they take priority over the method's ordering)
@@ -30,7 +29,7 @@ Adapting the teaching method to this interface:
 
 ## Starting a new topic
 Before any pre-test question, in this order, each as its own \`ask_user_question\` and waiting for the answer each time:
-1. Ask what the learner wants out of the topic, as the method describes, with these options (word for word, in this order); they can also type their own answer:
+1. Ask what the learner wants out of the topic, with these options (word for word, in this order); they can also type their own answer:
    - "I am a GP looking to review this topic to keep my practice up to date"
    - "I am a medical student or resident studying to build and improve my knowledge base"
    - "I am a UHNBC student trying to do my best on my exams"
@@ -51,12 +50,12 @@ Only then start the pre-test. If they added materials, base the pre-test and the
 - After each quiz answer, the page itself invites the learner to ask questions before clicking "Next question". If they type a question there, answer it fully, check they're satisfied, then carry on where you left off.
 - After each teaching section, the page also invites questions: when you stop after a section, and before a quiz that follows a section in the same reply. So don't add your own "any questions?" card; just finish the section. If the learner writes "No questions, please continue.", carry on with the plan. If they ask something (including a question that arrives instead of a quiz answer), answer it fully, check they're satisfied, then carry on where you left off, asking any quiz question they didn't get to see again.`;
 
-const VISUALS = `# Visuals (required; this overrides anything above that says to draw rarely)
+const VISUALS = `# Visuals (required)
 
 This learner asked for pictures throughout the lesson: they vary the pace and keep attention. Showing no visuals for long stretches is a failure of the lesson.
 
 Required:
-- The plan always includes its mermaid dependency map.
+- The plan always includes its map, drawn as a mermaid diagram.
 - Every section you teach includes at least one visual.
 - In the pre-test and practice questions, about every other quiz question or its explanation includes a visual when the topic allows: a diagram, chart or image in the question's \`details\` ("What does the arrow in this X-ray show?") or a small diagram in the \`explanation\` showing why the answer is right.
 - Never go more than two replies in a row without one. The app will remind you if you do.
@@ -71,14 +70,16 @@ Every visual must be accurate and support the text; double-check labels. Markdow
 
 The app also adds pictures by itself under long explanations and some quiz answers, and the learner can ask for one with a button. You don't see these. If the learner asks about "the picture" or "the diagram" and you didn't make one, ask them what it shows rather than guessing.`;
 
-/** Builds the appended system prompt: interface notes plus the teach skill. */
-export function buildTeachingPrompt(teachSkillDir: string): string[] {
-	const raw = fs.readFileSync(path.join(teachSkillDir, "SKILL.md"), "utf8");
-	// Drop the YAML frontmatter; the body is the method.
-	const body = raw.replace(/^---\n[\s\S]*?\n---\n/, "").trim();
+/** Builds the appended system prompt: interface notes plus the teaching method. */
+export function buildTeachingPrompt(): string[] {
+	// Read on every lesson so edits to the file apply without a code change.
+	const body = fs
+		.readFileSync(TEACHING_FILE, "utf8")
+		.replace(/<!--[\s\S]*?-->/g, "")
+		.trim();
 	const bullets = (items: string[]) => items.map((g) => `- ${g}`).join("\n");
 	const toolNotes = `# Using the quiz, ask_user_question and find_image tools\n\n## quiz\n${bullets(QUIZ_GUIDELINES)}\n\n## ask_user_question\n${bullets(ASK_GUIDELINES)}\n\n## find_image\n${bullets(IMAGE_GUIDELINES)}`;
-	// Visuals go last: the method itself says to draw rarely, and the rule that
-	// comes last is the one models weigh most.
+	// Visuals go last: models drift back to plain text, and the rule that comes
+	// last is the one they weigh most.
 	return [INTERFACE_NOTES, toolNotes, `# The teaching method (always active)\n\n${body}`, VISUALS];
 }

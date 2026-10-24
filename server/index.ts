@@ -5,7 +5,7 @@ import * as http from "node:http";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
-import { DATA_DIR, ensureDirs, ensureTeachSkill } from "./config.ts";
+import { DATA_DIR, ensureDirs } from "./config.ts";
 import { type Material, MaterialError, readFile, readLink } from "./materials.ts";
 import type { ClientMessage, LoginPrompt, ModelInfo, ProviderInfo, ServerMessage } from "./protocol.ts";
 import { Tutor } from "./tutor.ts";
@@ -19,7 +19,6 @@ const HOST = process.env.HOST || "127.0.0.1";
 const WEB_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../web/dist");
 
 ensureDirs();
-const teachSkillDir = await ensureTeachSkill();
 const runtime = await ModelRuntime.create(
 	process.env.PI_LEARN_MODELS_PATH ? { modelsPath: process.env.PI_LEARN_MODELS_PATH } : undefined,
 );
@@ -32,7 +31,7 @@ function broadcast(msg: ServerMessage) {
 	for (const ws of clients) sendTo(ws, msg);
 }
 
-const tutor = new Tutor(runtime, teachSkillDir, broadcast);
+const tutor = new Tutor(runtime, broadcast);
 
 // ── Sign-in ──────────────────────────────────────────────────────────────────
 
