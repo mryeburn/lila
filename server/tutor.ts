@@ -33,6 +33,8 @@ const APP_NOTE = /\s*<app-note>[\s\S]*?<\/app-note>\s*$/;
 
 // Teaching text at least this long, with no picture, gets one from the app.
 const MIN_SECTION_LENGTH = 400;
+/** What the page sends when the learner has no questions after a section. */
+const CONTINUE_TEXT = "No questions, please continue.";
 
 /** Identifies one part of a tutor message (the text between its cards). */
 function partId(msg: any, part: number): string {
@@ -41,6 +43,21 @@ function partId(msg: any, part: number): string {
 
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
 type Thinking = (typeof THINKING_LEVELS)[number];
+
+/**
+ * True when the message before `at` is the learner asking something: a question
+ * typed instead of a quiz answer or before one, a follow-up typed right after a
+ * quiz answer, or any message with a question mark.
+ */
+function learnerAsked(messages: any[], at: number): boolean {
+	const prev = messages[at - 1];
+	if (prev?.role === "toolResult") return prev.details?.status === "paused" || !!prev.details?.skippedWith;
+	if (prev?.role !== "user") return false;
+	const text = textOf(prev.content).replace(APP_NOTE, "").trim();
+	if (!text || text === CONTINUE_TEXT || parseMessage(text)) return false;
+	const before = messages[at - 2];
+	return text.includes("?") || (before?.role === "toolResult" && Array.isArray(before.details?.correctIndices));
+}
 
 function textOf(content: unknown): string {
 	if (typeof content === "string") return content;
@@ -197,17 +214,24 @@ export class Tutor implements InteractionBroker {
 
 	/** After a long teaching section, the lesson pauses for questions before the quiz. */
 	async beforeQuiz(toolCallId: string, signal: AbortSignal | undefined): Promise<string | undefined> {
-		const msg = (this.session?.messages as any[] | undefined)?.find(
+		const messages = (this.session?.messages ?? []) as any[];
+		const at = messages.findIndex(
 			(m) => m.role === "assistant" && (m.content ?? []).some((b: any) => b.type === "toolCall" && b.id === toolCallId),
 		);
+		const msg = messages[at];
 		let text = "";
+		let firstPart = true;
 		for (const block of msg?.content ?? []) {
 			if (block.type === "text") text += block.text;
 			if (block.type !== "toolCall") continue;
 			if (block.id === toolCallId) break;
 			if (TOOL_NAMES.includes(block.name)) text = "";
+			firstPart = false;
 		}
 		if (text.trim().length < MIN_SECTION_LENGTH) return undefined;
+		// The text is the tutor's answer to something the learner just asked,
+		// not a new section; they've had their say, so go straight to the quiz.
+		if (firstPart && learnerAsked(messages, at)) return undefined;
 		const answer = await this.request<{ text?: string }>({ kind: "pause", id: toolCallId }, signal);
 		return answer?.text?.trim() || undefined;
 	}
