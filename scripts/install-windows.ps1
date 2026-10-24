@@ -1,12 +1,12 @@
-# One-step installer for Pi Learn on Windows.
+# One-step installer for LILA on Windows.
 #
-# Installs everything Pi Learn needs: its own copy of Node.js, the app itself,
-# and a "Pi Learn" icon on the desktop and in the Start menu. Nothing else on
+# Installs everything LILA needs: its own copy of Node.js, the app itself,
+# and a "LILA" icon on the desktop and in the Start menu. Nothing else on
 # the computer is changed, and no administrator rights are needed. Safe to run
 # again: it updates the app to the latest version and keeps your lessons and
 # sign-ins.
 #
-#   irm https://raw.githubusercontent.com/mryeburn/pi-learn-userfriendlyinterface/main/scripts/install-windows.ps1 | iex
+#   irm https://raw.githubusercontent.com/mryeburn/lila/main/scripts/install-windows.ps1 | iex
 
 & {
 	$ErrorActionPreference = 'Stop'
@@ -14,10 +14,10 @@
 	$ProgressPreference = 'SilentlyContinue'
 	[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
-	$Repo = 'mryeburn/pi-learn-userfriendlyinterface'
+	$Repo = 'mryeburn/lila'
 	$NodeDist = 'https://nodejs.org/dist/latest-v22.x'
-	$AppDir = Join-Path $HOME 'pi-learn'
-	$DataDir = Join-Path $HOME '.pi-learn-web'
+	$AppDir = Join-Path $HOME 'lila'
+	$DataDir = Join-Path $HOME '.lila'
 	$NodeDir = Join-Path $DataDir 'node'
 
 	function Say($msg) { Write-Host "`n==> $msg" -ForegroundColor Cyan }
@@ -42,7 +42,7 @@
 	try {
 		$arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64' -or $env:PROCESSOR_ARCHITEW6432 -eq 'ARM64') { 'arm64' } else { 'x64' }
 		New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
-		$tmp = Join-Path ([IO.Path]::GetTempPath()) ("pi-learn-" + [guid]::NewGuid())
+		$tmp = Join-Path ([IO.Path]::GetTempPath()) ("lila-" + [guid]::NewGuid())
 		New-Item -ItemType Directory -Path $tmp | Out-Null
 
 		# Stop a running copy, so its files can be replaced.
@@ -51,7 +51,7 @@
 			ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 
 		# ── 1. Node.js ──────────────────────────────────────────────────────────
-		# Pi Learn gets its own private copy of Node.js, so it never depends on
+		# LILA gets its own private copy of Node.js, so it never depends on
 		# (or disturbs) any other Node.js on the computer.
 		Say 'Getting Node.js'
 		$sums = Join-Path $tmp 'SHASUMS256.txt'
@@ -76,7 +76,7 @@
 		Write-Host "Using Node.js $(& $nodeExe -v)"
 
 		# ── 2. The app ──────────────────────────────────────────────────────────
-		Say 'Downloading Pi Learn'
+		Say 'Downloading LILA'
 		# Pin the exact version, so the app knows what it's running when checking for updates.
 		$sha = ''
 		try {
@@ -86,10 +86,10 @@
 		} catch { }
 		if ($sha -notmatch '^[0-9a-f]{40}$') { $sha = '' }
 		$ref = if ($sha) { $sha } else { 'refs/heads/main' }
-		$ZipUrl = if ($env:PI_LEARN_ZIP) { $env:PI_LEARN_ZIP } else { "https://github.com/$Repo/archive/$ref.zip" }
-		Download $ZipUrl (Join-Path $tmp 'app.zip') "Couldn't download Pi Learn from GitHub. If the repository is private, it has to be made public first."
+		$ZipUrl = if ($env:LILA_ZIP) { $env:LILA_ZIP } else { "https://github.com/$Repo/archive/$ref.zip" }
+		Download $ZipUrl (Join-Path $tmp 'app.zip') "Couldn't download LILA from GitHub. If the repository is private, it has to be made public first."
 		$app = Extract (Join-Path $tmp 'app.zip') (Join-Path $tmp 'app')
-		if (-not (Test-Path (Join-Path $app.FullName 'package.json'))) { Fail "The download doesn't look like Pi Learn." }
+		if (-not (Test-Path (Join-Path $app.FullName 'package.json'))) { Fail "The download doesn't look like LILA." }
 		# Reuse already-installed packages to make updates quick.
 		$oldModules = Join-Path $AppDir 'node_modules'
 		if (Test-Path $oldModules) { Move-Item $oldModules $app.FullName }
@@ -97,7 +97,7 @@
 		Move-Item $app.FullName $AppDir
 		if ($sha) { Set-Content -Path (Join-Path $AppDir '.version') -Value "{`"repo`":`"$Repo`",`"sha`":`"$sha`"}" -Encoding ASCII }
 
-		Say "Installing Pi Learn's components (this takes a few minutes the first time)"
+		Say "Installing LILA's components (this takes a few minutes the first time)"
 		Push-Location $AppDir
 		try {
 			$npm = Join-Path $NodeDir 'npm.cmd'
@@ -109,32 +109,32 @@
 		} finally { Pop-Location }
 
 		# ── 3. Launcher ─────────────────────────────────────────────────────────
-		# Starts Pi Learn hidden in the background if it isn't running, then
+		# Starts LILA hidden in the background if it isn't running, then
 		# opens it in the browser. Errors go to a log file, since nobody sees them.
 		$q = { param($s) "'" + ($s -replace "'", "''") + "'" }
 		$launcher = @'
-# Starts Pi Learn in the background if it isn't running, then opens it in the browser.
-$url = 'http://127.0.0.1:4747'
+# Starts LILA in the background if it isn't running, then opens it in the browser.
+$url = 'http://127.0.0.1:4848'
 function Up { try { Invoke-WebRequest $url -UseBasicParsing -TimeoutSec 2 | Out-Null; $true } catch { $false } }
 if (-not (Up)) {
-	$env:PI_LEARN_NO_OPEN = '1'
+	$env:LILA_NO_OPEN = '1'
 	$env:Path = __NODE_DIR__ + ';' + $env:Path
 	Start-Process -FilePath (Join-Path __NODE_DIR__ 'node.exe') -ArgumentList 'node_modules/tsx/dist/cli.mjs', 'server/index.ts' `
 		-WorkingDirectory __APP_DIR__ -WindowStyle Hidden `
 		-RedirectStandardOutput (Join-Path __DATA_DIR__ 'app.log') -RedirectStandardError (Join-Path __DATA_DIR__ 'app-errors.log')
 	for ($i = 0; $i -lt 60 -and -not (Up); $i++) { Start-Sleep -Seconds 1 }
 }
-if (-not $env:PI_LEARN_NO_BROWSER) { Start-Process $url }
+if (-not $env:LILA_NO_BROWSER) { Start-Process $url }
 '@
 		$launcher = $launcher.Replace('__NODE_DIR__', (& $q $NodeDir)).Replace('__APP_DIR__', (& $q $AppDir)).Replace('__DATA_DIR__', (& $q $DataDir))
 		Set-Content -Path (Join-Path $AppDir 'launch.ps1') -Value $launcher -Encoding UTF8
 
 		# ── 4. Icons ────────────────────────────────────────────────────────────
 		$icon = Join-Path $DataDir 'icon.ico'
-		Copy-Item (Join-Path $AppDir 'scripts\icon\pi-learn.ico') $icon -Force
+		Copy-Item (Join-Path $AppDir 'scripts\icon\lila.ico') $icon -Force
 		$shell = New-Object -ComObject WScript.Shell
 		foreach ($folder in [Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs')) {
-			$link = $shell.CreateShortcut((Join-Path $folder 'Pi Learn.lnk'))
+			$link = $shell.CreateShortcut((Join-Path $folder 'LILA.lnk'))
 			$link.TargetPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 			$link.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$(Join-Path $AppDir 'launch.ps1')`""
 			$link.WorkingDirectory = $AppDir
@@ -145,19 +145,19 @@ if (-not $env:PI_LEARN_NO_BROWSER) { Start-Process $url }
 		}
 
 		# Updating from inside the app: start the new version; the open page reloads itself.
-		if ($env:PI_LEARN_RESTART) {
-			$env:PI_LEARN_NO_BROWSER = '1'
+		if ($env:LILA_RESTART) {
+			$env:LILA_NO_BROWSER = '1'
 			& (Join-Path $AppDir 'launch.ps1')
 		}
 
 		Say 'Done!'
 		Write-Host ''
-		Write-Host '  Pi Learn is installed. You can close this window.'
+		Write-Host '  LILA is installed. You can close this window.'
 		Write-Host ''
-		Write-Host '  Double-click the Pi Learn icon on your desktop to start it.'
+		Write-Host '  Double-click the LILA icon on your desktop to start it.'
 		Write-Host '  (It is also in the Start menu.)'
 		Write-Host ''
-		Write-Host '  The first time, Pi Learn asks you to connect an AI provider.'
+		Write-Host '  The first time, LILA asks you to connect an AI provider.'
 		Write-Host ''
 	} catch {
 		Write-Host "`nSetup stopped: $($_.Exception.Message)" -ForegroundColor Red

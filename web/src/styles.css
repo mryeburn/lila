@@ -151,16 +151,16 @@ a {
 	width: 30px;
 	height: 30px;
 	border-radius: 8px;
-	background: var(--accent);
-	color: var(--accent-text);
-	font-family: var(--reading);
-	font-size: 19px;
+	background: linear-gradient(135deg, #14b8a6, #0f766e);
+	color: #ffffff;
+	font-weight: 700;
+	font-size: 18px;
 }
 .logo.big {
 	width: 56px;
 	height: 56px;
 	border-radius: 16px;
-	font-size: 34px;
+	font-size: 32px;
 	margin-bottom: 8px;
 }
 .lesson-list {
@@ -1126,4 +1126,10 @@ button.option:not(:disabled):hover {
 	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 	font-size: 12px;
 	resize: vertical;
+}
+
+.about .dedication {
+	font-family: var(--reading);
+	font-style: italic;
+	line-height: 1.55;
 }

@@ -90,7 +90,7 @@ export function useTutor(): TutorStore {
 				const msg = JSON.parse(ev.data) as ServerMessage;
 				switch (msg.type) {
 					case "hello":
-						// Pi Learn was updated while this page was open: load the new page.
+						// LILA was updated while this page was open: load the new page.
 						if (versionRef.current && versionRef.current !== msg.version) location.reload();
 						versionRef.current = msg.version;
 						break;

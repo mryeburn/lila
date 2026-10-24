@@ -15,7 +15,7 @@ import { Type } from "typebox";
 /** Hosts the page will load images from. Keep in sync with web/src/components/Markdown.tsx. */
 export const IMAGE_HOSTS = ["upload.wikimedia.org", "openi.nlm.nih.gov"];
 
-const USER_AGENT = "PiLearn/1.0 (https://github.com/mryeburn/pi-learn-userfriendlyinterface)";
+const USER_AGENT = "LILA/1.0 (https://github.com/mryeburn/lila)";
 const MAX_RESULTS = 4;
 
 export interface Candidate {

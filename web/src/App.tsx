@@ -154,7 +154,7 @@ export function App() {
 		const update = store.update;
 		if (!checkedByHand.current || !update || update.state === "checking") return;
 		checkedByHand.current = false;
-		if (update.state === "current") store.showToast("You have the latest version of Pi Learn.");
+		if (update.state === "current") store.showToast("You have the latest version of LILA.");
 		if (update.state === "error") store.showToast(update.error ?? "Couldn't check for updates.");
 	}, [store.update, store.showToast]);
 
@@ -208,7 +208,7 @@ export function App() {
 		<div className={`app ${sidebarOpen ? "sidebar-open" : ""}`}>
 			<aside className="sidebar">
 				<div className="brand">
-					<span className="logo">π</span> Pi Learn
+					<span className="logo">L</span> LILA
 				</div>
 				<button
 					type="button"
@@ -278,10 +278,10 @@ export function App() {
 					)}
 				</header>
 
-				{!connected && <div className="banner">Reconnecting to Pi Learn… Is the app still running in your terminal?</div>}
+				{!connected && <div className="banner">Reconnecting to LILA… Is the app still running in your terminal?</div>}
 				{store.update?.state === "available" && (
 					<div className="banner update-banner">
-						<span>A new version of Pi Learn is available.</span>
+						<span>A new version of LILA is available.</span>
 						<button type="button" className="primary small" onClick={() => send({ type: "start_update" })}>
 							Update now
 						</button>
@@ -289,7 +289,7 @@ export function App() {
 				)}
 				{store.update?.state === "updating" && (
 					<div className="banner update-banner">
-						Updating Pi Learn. This takes a minute or two; the page will reload by itself.
+						Updating LILA. This takes a minute or two; the page will reload by itself.
 					</div>
 				)}
 				{state?.error && <div className="banner error">{state.error}</div>}
@@ -305,11 +305,11 @@ export function App() {
 					<div className="transcript">
 						{items.length === 0 && streaming === null && (
 							<div className="welcome">
-								<div className="logo big">π</div>
+								<div className="logo big">L</div>
 								<h1>What do you want to understand?</h1>
 								<p>
 									Your tutor first checks what you already know with a few quick questions, then shows you a plan, then
-									builds the idea up step by step from things that are obviously true.
+									teaches it one small step at a time, with pictures and quick checks along the way.
 								</p>
 								<div className="starters">
 									{STARTERS.map((s) => (
