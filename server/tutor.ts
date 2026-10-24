@@ -6,6 +6,7 @@ import {
 	getAgentDir,
 	type ModelRuntime,
 	SessionManager,
+	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
 import { type AppSettings, loadSettings, SESSIONS_DIR, saveSettings, WORKSPACE_DIR } from "./config.ts";
@@ -24,6 +25,11 @@ const DEFAULT_MODELS: Array<[string, RegExp]> = [
 	["google", /^gemini-([\d.]+-pro|pro-latest)$/],
 	["openrouter", /^anthropic\/claude-sonnet/],
 ];
+// A diagram, chart or photo in a tutor reply (text or quiz/question card).
+const VISUAL = /```(mermaid|svg)|!\[[^\]]*\]\(https:\/\//;
+// Hidden notes from the app to the tutor, appended to the learner's messages.
+const APP_NOTE = /\s*<app-note>[\s\S]*?<\/app-note>\s*$/;
+
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
 type Thinking = (typeof THINKING_LEVELS)[number];
 
@@ -114,7 +120,7 @@ export class Tutor implements InteractionBroker {
 		const byToolCall = new Map<string, TranscriptItem & { kind: "quiz" | "ask" }>();
 		for (const msg of this.session.messages as any[]) {
 			if (msg.role === "user") {
-				const text = textOf(msg.content).trim();
+				const text = textOf(msg.content).replace(APP_NOTE, "").trim();
 				const resource = parseMessage(text);
 				if (resource) items.push({ kind: "resource", ...resource });
 				else if (text) items.push({ kind: "user", text });
@@ -221,8 +227,8 @@ export class Tutor implements InteractionBroker {
 			sessionManager,
 			tools: [...TOOL_NAMES, "find_image"],
 			customTools: [
-				createQuizTool(this),
-				createAskTool(this),
+				this.withVisualReminder(createQuizTool(this)),
+				this.withVisualReminder(createAskTool(this)),
 				createImageTool(() => this.session?.model?.input?.includes("image") ?? false),
 			],
 		});
@@ -284,14 +290,61 @@ export class Tutor implements InteractionBroker {
 		}
 		try {
 			if (session.isStreaming) {
-				await session.steer(text);
+				await session.steer(text + this.visualReminder(true));
 			} else {
-				await session.prompt(text);
+				await session.prompt(text + this.visualReminder(true));
 			}
 		} catch (err) {
 			this.lastError = (err as Error).message;
 			await this.pushState();
 		}
+	}
+
+	// ── Keeping the lesson visual ────────────────────────────────────────────
+	// The teaching method says to draw rarely, and models tend to drift back to
+	// plain text. When the tutor has gone two replies without a diagram, chart
+	// or photo, the app reminds it, out of the learner's sight.
+
+	private repliesWithoutVisual(): number {
+		let count = 0;
+		const messages = (this.session?.messages ?? []) as any[];
+		for (let i = messages.length - 1; i >= 0; i--) {
+			const msg = messages[i];
+			if (msg.role !== "assistant") continue;
+			let text = "";
+			let card = false;
+			for (const block of msg.content ?? []) {
+				if (block.type === "text") text += block.text;
+				if (block.type === "toolCall" && TOOL_NAMES.includes(block.name)) {
+					card = true;
+					text += JSON.stringify(block.arguments ?? {});
+				}
+			}
+			// Replies that only searched for an image don't count either way.
+			if (!text.trim() && !card) continue;
+			if (VISUAL.test(text)) return count;
+			count++;
+		}
+		return count;
+	}
+
+	private visualReminder(tagged = false): string {
+		const n = this.repliesWithoutVisual();
+		if (n < 2) return "";
+		const note = `Note from the Pi Learn app, not from the learner: your last ${n} replies had no visual. Include a fitting diagram, chart or find_image photo in your next reply, or in the details or explanation of your next quiz.`;
+		return tagged ? `\n\n<app-note>${note}</app-note>` : `\n\n[${note}]`;
+	}
+
+	/** Adds the visual reminder to a card's result when one is due. */
+	private withVisualReminder<T extends ToolDefinition<any>>(tool: T): T {
+		return {
+			...tool,
+			execute: async (...args: any[]) => {
+				const result = await (tool.execute as (...a: any[]) => ReturnType<T["execute"]>)(...args);
+				const note = this.visualReminder();
+				return note ? { ...result, content: [...result.content, { type: "text" as const, text: note }] } : result;
+			},
+		};
 	}
 
 	async abort(): Promise<void> {
