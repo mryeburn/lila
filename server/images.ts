@@ -3,6 +3,8 @@
 // (models invent links that don't exist). The page only displays images from
 // these same hosts, so a made-up link can never appear.
 //
+// - Wikipedia: the freely licensed images in the best-matching article, with
+//   the article's captions. Often the best teaching images there are.
 // - Wikimedia Commons: freely licensed photos, illustrations and diagrams.
 // - Open-i (US National Library of Medicine): clinical images (X-rays, CT,
 //   MRI, ultrasound, clinical photos, microscopy) from open-access journals.
@@ -63,7 +65,7 @@ export function createImageTool(canSeeImages: () => boolean): ToolDefinition<typ
 		name: "find_image",
 		label: "Image search",
 		description:
-			"Search trusted, openly licensed image libraries (Wikimedia Commons; the US National Library of Medicine's Open-i clinical image collection) for a real photo, scan or illustration to show the learner. Returns up to four candidates, each with a ready-to-paste markdown line.",
+			"Search trusted, openly licensed image libraries (images from the matching Wikipedia article; Wikimedia Commons; the US National Library of Medicine's Open-i clinical image collection) for a real photo, scan or illustration to show the learner. Returns up to four candidates, each with a ready-to-paste markdown line.",
 		promptSnippet: "Use find_image to find a real photo, scan or illustration from a trusted library to show the learner.",
 		promptGuidelines: IMAGE_GUIDELINES,
 		parameters: Params,
@@ -96,24 +98,98 @@ export function createImageTool(canSeeImages: () => boolean): ToolDefinition<typ
 	};
 }
 
-/** Searches the libraries and returns up to four candidates, alternating between them. */
+/**
+ * Searches the libraries and returns candidates, best sources first:
+ * images from the matching Wikipedia article (curated, captioned), then
+ * Wikimedia Commons and Open-i search results, taking turns.
+ */
 export async function searchImages(
 	query: string,
 	source: "any" | "wikimedia" | "clinical",
 	kindName: string,
 	signal?: AbortSignal,
+	options: { article?: string; limit?: number } = {},
 ): Promise<Candidate[]> {
+	const limit = options.limit ?? MAX_RESULTS;
 	const kind = KINDS[kindName as keyof typeof KINDS] ?? "";
+	const wikipedia =
+		source !== "clinical" ? searchWikipedia(options.article || query, signal).catch(() => []) : Promise.resolve([]);
 	const searches: Promise<Candidate[]>[] = [];
 	if (source !== "wikimedia") searches.push(searchOpenI(query, kind, signal).catch(() => []));
 	if (source !== "clinical") searches.push(searchCommons(query, signal).catch(() => []));
-	const [a = [], b = []] = await Promise.all(searches);
+	const [article, [a = [], b = []]] = await Promise.all([wikipedia, Promise.all(searches)]);
 	const mixed: Candidate[] = [];
-	for (let i = 0; mixed.length < MAX_RESULTS && i < Math.max(a.length, b.length); i++) {
-		if (a[i]) mixed.push(a[i]);
-		if (b[i] && mixed.length < MAX_RESULTS) mixed.push(b[i]);
+	const add = (c: Candidate | undefined) => {
+		if (c && mixed.length < limit && !mixed.some((m) => m.url === c.url)) mixed.push(c);
+	};
+	// Leave room for at least a couple of search results after the article's images.
+	for (const c of article.slice(0, Math.max(1, limit - 2))) add(c);
+	for (let i = 0; i < Math.max(a.length, b.length); i++) {
+		add(a[i]);
+		add(b[i]);
 	}
 	return mixed;
+}
+
+// Images in an article that are decoration, not teaching material.
+const NOT_TEACHING = /icon|logo|symbol|flag|portal|disambig|question_book|edit-clear|padlock|wiki|commons-|ambox|stub|red_pog|crystal_clear|nuvola|gnome-|speakerlink|sound/i;
+
+/** Images used in the best-matching English Wikipedia article, with their captions. */
+async function searchWikipedia(query: string, signal?: AbortSignal): Promise<Candidate[]> {
+	const search = new URL("https://en.wikipedia.org/w/api.php");
+	search.search = new URLSearchParams({
+		action: "query",
+		format: "json",
+		origin: "*",
+		list: "search",
+		srsearch: query,
+		srnamespace: "0",
+		srlimit: "1",
+	}).toString();
+	const title: string | undefined = (await getJson(search.href, signal))?.query?.search?.[0]?.title;
+	if (!title) return [];
+
+	// The media list has the article's own captions. If that service is
+	// unavailable, fall back to the plain list of files the article uses.
+	const captions = new Map<string, string>();
+	const keep = (file: unknown, caption: string) => {
+		if (typeof file !== "string" || NOT_TEACHING.test(file) || captions.size >= 12) return;
+		captions.set(file.replace(/_/g, " "), caption);
+	};
+	try {
+		const media = await getJson(
+			`https://en.wikipedia.org/api/rest_v1/page/media-list/${encodeURIComponent(title.replace(/ /g, "_"))}`,
+			signal,
+		);
+		for (const item of media?.items ?? []) {
+			if (item?.type === "image") keep(item.title, plain(item.caption?.text ?? item.caption?.html ?? ""));
+		}
+	} catch {
+		const list = new URL("https://en.wikipedia.org/w/api.php");
+		list.search = new URLSearchParams({
+			action: "query",
+			format: "json",
+			origin: "*",
+			titles: title,
+			prop: "images",
+			imlimit: "40",
+		}).toString();
+		const pages = Object.values<any>((await getJson(list.href, signal))?.query?.pages ?? {});
+		for (const image of pages[0]?.images ?? []) keep(image.title, "");
+	}
+	if (captions.size === 0) return [];
+
+	// Only images on Commons are freely licensed; Wikipedia's own uploads may be
+	// non-free, and Commons doesn't have them, so they drop out here.
+	const found = await commonsImages({ titles: [...captions.keys()].join("|") }, signal);
+	const order = [...captions.keys()];
+	return found
+		.filter((c) => c.width >= 200)
+		.sort((x, y) => order.indexOf(x.file) - order.indexOf(y.file))
+		.map((c) => {
+			const caption = captions.get(c.file);
+			return { ...c, title: caption ? `${caption} (from the Wikipedia article "${title}")` : `${c.title} (from the Wikipedia article "${title}")` };
+		});
 }
 
 async function getJson(url: string, signal?: AbortSignal): Promise<any> {
@@ -126,23 +202,31 @@ async function getJson(url: string, signal?: AbortSignal): Promise<any> {
 }
 
 async function searchCommons(query: string, signal?: AbortSignal): Promise<Candidate[]> {
+	return (await commonsImages({ generator: "search", gsrnamespace: "6", gsrsearch: query, gsrlimit: "8" }, signal)).slice(
+		0,
+		MAX_RESULTS,
+	);
+}
+
+/** Looks up Commons files (by search or by name) with their thumbnails, size and credits. */
+async function commonsImages(
+	query: Record<string, string>,
+	signal?: AbortSignal,
+): Promise<Array<Candidate & { file: string; width: number }>> {
 	const url = new URL("https://commons.wikimedia.org/w/api.php");
 	url.search = new URLSearchParams({
 		action: "query",
 		format: "json",
 		origin: "*",
-		generator: "search",
-		gsrnamespace: "6",
-		gsrsearch: query,
-		gsrlimit: "8",
+		...query,
 		prop: "imageinfo",
-		iiprop: "url|extmetadata|mime",
+		iiprop: "url|extmetadata|mime|size",
 		iiurlwidth: "800",
 		iiextmetadatafilter: "LicenseShortName|Artist|ImageDescription|ObjectName",
 	}).toString();
 	const data = await getJson(url.href, signal);
 	const pages = Object.values<any>(data?.query?.pages ?? {}).sort((x, y) => (x.index ?? 0) - (y.index ?? 0));
-	const out: Candidate[] = [];
+	const out: Array<Candidate & { file: string; width: number }> = [];
 	for (const p of pages) {
 		const info = p.imageinfo?.[0];
 		if (!info?.thumburl || !/^image\/(jpeg|png|gif|svg\+xml|webp)$/.test(info.mime ?? "")) continue;
@@ -151,6 +235,8 @@ async function searchCommons(query: string, signal?: AbortSignal): Promise<Candi
 		const artist = plain(meta.Artist?.value);
 		const license = plain(meta.LicenseShortName?.value);
 		out.push({
+			file: String(p.title ?? ""),
+			width: Number(info.width) || 0,
 			url: info.thumburl,
 			thumb: info.thumburl.replace(/\/\d+px-/, "/400px-"),
 			title: title.slice(0, 300),
@@ -158,7 +244,7 @@ async function searchCommons(query: string, signal?: AbortSignal): Promise<Candi
 			page: info.descriptionurl ?? "",
 		});
 	}
-	return out.filter((c) => isAllowedImage(c.url)).slice(0, MAX_RESULTS);
+	return out.filter((c) => isAllowedImage(c.url));
 }
 
 async function searchOpenI(query: string, kind: string, signal?: AbortSignal): Promise<Candidate[]> {

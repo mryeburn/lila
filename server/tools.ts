@@ -34,6 +34,11 @@ export type PendingInteraction =
 			options: DisplayOption[];
 	  }
 	| {
+			/** Before a quiz that follows a teaching section: "Any questions about this section?" */
+			kind: "pause";
+			id: string;
+	  }
+	| {
 			/** A graded quiz, shown until the learner clicks "Next question". */
 			kind: "graded";
 			id: string;
@@ -59,6 +64,11 @@ export interface AskAnswer {
 /** Hands interactions to whoever is showing the page, and waits for answers. */
 export interface InteractionBroker {
 	request<T>(interaction: PendingInteraction, signal: AbortSignal | undefined): Promise<T | undefined>;
+	/**
+	 * Called before a quiz is shown. Returns what the learner typed when they
+	 * had a question about the section just taught, else undefined.
+	 */
+	beforeQuiz?(toolCallId: string, signal: AbortSignal | undefined): Promise<string | undefined>;
 }
 
 interface Option {
@@ -218,6 +228,12 @@ export function createQuizTool(broker: InteractionBroker): ToolDefinition<typeof
 			}
 			correctIndices.sort((a, b) => a - b);
 			if (correctIndices.length === 0) return fail("quiz correctAnswer is required");
+
+			const asked = await broker.beforeQuiz?.(toolCallId, signal);
+			if (asked) {
+				const message = `Before seeing this quiz question, the learner asked about the section you just taught: ${asked}\nAnswer their question first, then ask this quiz question again.`;
+				return textResult(message, { status: "paused", question, mode, message: "You asked a question first", skippedWith: asked });
+			}
 
 			const displayOptions = toDisplay(options);
 			const answer = await broker.request<QuizAnswer>(

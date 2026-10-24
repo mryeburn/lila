@@ -49,7 +49,7 @@ Only then start the pre-test. If they added materials, base the pre-test and the
 
 ## Questions before moving on
 - After each quiz answer, the page itself invites the learner to ask questions before clicking "Next question". If they type a question there, answer it fully, check they're satisfied, then carry on where you left off.
-- Before starting each new section of your plan, ask with \`ask_user_question\` whether they have any questions about the section just finished, with options like "No, let's move on" and "Yes, I have a question" (they can also type their question directly). Answer any questions before moving on.`;
+- After each teaching section, the page also invites questions: when you stop after a section, and before a quiz that follows a section in the same reply. So don't add your own "any questions?" card; just finish the section. If the learner writes "No questions, please continue.", carry on with the plan. If they ask something (including a question that arrives instead of a quiz answer), answer it fully, check they're satisfied, then carry on where you left off, asking any quiz question they didn't get to see again.`;
 
 const VISUALS = `# Visuals (required; this overrides anything above that says to draw rarely)
 

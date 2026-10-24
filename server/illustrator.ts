@@ -1,8 +1,11 @@
 // Makes sure lessons have pictures. Asking the tutor to draw more wasn't
 // enough: the teaching method tells it to draw rarely, and it does. So the app
-// asks the same AI, in a separate small request whose only job is the picture,
-// for one diagram, chart or library photo for a stretch of the lesson, and
-// shows it under that part.
+// asks the same AI, in separate small requests whose only job is the picture,
+// for one image for a stretch of the lesson, and shows it under that part.
+//
+// Real images come first: the AI names the Wikipedia article and search words
+// most likely to find a good one, the app searches the libraries, and the AI
+// picks the best candidate. Only when none fits does it draw a diagram or chart.
 
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { Api, Context, ImageContent, Model, TextContent } from "@earendil-works/pi-ai";
@@ -25,20 +28,27 @@ export interface IllustrateRequest {
 
 const KIND_NAMES = Object.keys(KINDS).join(", ");
 
-const SYSTEM = `You add one picture to a lesson in a learning app. Learners are doctors and medical students, so pictures must be accurate and clinically sound.
+const FIND = `You find one real image for a lesson in a medical learning app: a professional illustration, labelled diagram, chart, X-ray or scan, clinical photo, or micrograph. Learners are doctors and medical students.
+
+Reply with exactly these three lines and nothing else:
+ARTICLE: <the English Wikipedia article most likely to contain a good image for this part, e.g. "Renin-angiotensin system">
+SEARCH: <3 to 6 plain search words for the image itself, e.g. "renin angiotensin aldosterone diagram" or "tension pneumothorax chest x-ray">
+KIND: <one of: ${KIND_NAMES}>
+
+If you were told a picture is optional and no image would genuinely help, reply NONE instead.`;
+
+const DRAW = `You draw one picture for a lesson in a medical learning app. Learners are doctors and medical students, so it must be accurate and clinically sound.
 
 Reply with exactly one of these, and nothing else:
+1. A diagram in a \`\`\`mermaid code block: flowchart, decision tree, timeline or sequence diagram.
+2. A chart in a \`\`\`mermaid code block: \`xychart-beta\` (line or bar) or \`pie\`. Prefer a chart whenever the text involves numbers that change with something (time, dose, age, severity) or proportions. Use only numbers stated in the text or well-established values; label axes with units.
+3. A labelled drawing in a \`\`\`svg code block: schematics, anatomy sketches, curves, waveforms. Use a viewBox no larger than 640x400, font-size 14 or more, and colors that read on white and dark backgrounds.
 
-1. A diagram in a \`\`\`mermaid code block: flowchart, decision tree, timeline, sequence diagram, \`xychart-beta\` line or bar chart, or \`pie\` chart.
-2. A labelled drawing in a \`\`\`svg code block: schematics, anatomy sketches, curves, waveforms. Use a viewBox no larger than 640x400, font-size 13 or more, and stroke/fill colors that read on white and dark backgrounds.
-3. PHOTO: <search words> | <kind>
-   when what something really looks like matters most (an X-ray finding, a skin lesion, a histology slide, an instrument). Search words are short and plain, like "pneumothorax chest x-ray". kind is one of: ${KIND_NAMES}.
-4. NONE, only if you were told a picture is optional and no picture would genuinely help.
-
-After a diagram or drawing, add one line: CAPTION: <a short caption>.
+After it, add one line: CAPTION: <a short caption>.
 
 Rules:
-- One picture that supports the text: the key mechanism, pathway, decision, comparison or appearance. Keep it small: a few nodes, short labels.
+- One picture that supports the text: the key mechanism, pathway, decision, comparison or trend. A few nodes, short labels.
+- Make diagrams clear and attractive: group related nodes with mermaid classDef colors (for example classDef cause fill:#fee2e2,stroke:#dc2626; classDef effect fill:#dcfce7,stroke:#16a34a; classDef drug fill:#e0e7ff,stroke:#4f46e5), and use subgraphs for stages.
 - Double-check every label, number and arrow.
 - Never give away the answer to a question the learner hasn't answered yet.
 - Mermaid: put labels with spaces or symbols in double quotes, like A["Na+ influx"]. Don't use parentheses, colons or semicolons in unquoted labels. Use plain hyphens and ASCII arrows.`;
@@ -56,24 +66,17 @@ export async function illustrate(
 	signal?: AbortSignal,
 ): Promise<IllustrateResult> {
 	try {
-		const first = await ask(runtime, model, SYSTEM, describe(req), signal);
-		const parsed = parse(first);
-		if (parsed.kind === "drawing") return { markdown: parsed.markdown };
-		if (parsed.kind === "photo") {
-			const photo = await pickPhoto(runtime, model, req, parsed.query, parsed.photoKind, signal);
-			if (photo) return { markdown: photo };
-			// No library photo fits: draw instead.
-			const second = await ask(
-				runtime,
-				model,
-				SYSTEM,
-				`${describe(req)}\n\nNo suitable photo was found in the libraries. Draw a mermaid diagram or svg instead.`,
-				signal,
-			);
-			const drawing = parse(second);
-			if (drawing.kind === "drawing") return { markdown: drawing.markdown };
+		// A broken diagram is redrawn rather than searched for again.
+		if (!req.retryAfterBroken) {
+			const plan = parseFind(await ask(runtime, model, FIND, describe(req), signal));
+			if (plan === "none" && !req.required) return {};
+			if (plan && plan !== "none") {
+				const image = await pickImage(runtime, model, req, plan, signal);
+				if (image) return { markdown: image };
+			}
 		}
-		if (parsed.kind === "none" && !req.required) return {};
+		const drawing = parseDrawing(await ask(runtime, model, DRAW, `${describe(req)}\n\nDraw it yourself.`, signal));
+		if (drawing) return { markdown: drawing };
 		return { error: "The AI didn't make a picture this time." };
 	} catch (err) {
 		return { error: (err as Error).message || "The picture request failed." };
@@ -100,39 +103,43 @@ function describe(req: IllustrateRequest): string {
 	return lines.join("\n");
 }
 
-type Parsed =
-	| { kind: "drawing"; markdown: string }
-	| { kind: "photo"; query: string; photoKind: string }
-	| { kind: "none" }
-	| { kind: "unknown" };
-
-function parse(reply: string): Parsed {
-	const block = /```(mermaid|svg)[^\n]*\n([\s\S]*?)```/.exec(reply);
-	if (block) {
-		const code = block[2].trim();
-		if (block[1] === "svg" && !/<svg[\s>]/.test(code)) return { kind: "unknown" };
-		const caption = /^\s*CAPTION:\s*(.+)$/im.exec(reply)?.[1]?.trim();
-		return { kind: "drawing", markdown: `\`\`\`${block[1]}\n${code}\n\`\`\`${caption ? `\n\n*${caption}*` : ""}` };
-	}
-	const photo = /^\s*PHOTO:\s*([^|\n]+?)\s*(?:\|\s*(\w+))?\s*$/im.exec(reply);
-	if (photo) {
-		const kind = photo[2]?.toLowerCase() ?? "any";
-		return { kind: "photo", query: photo[1], photoKind: kind in KINDS ? kind : "any" };
-	}
-	if (/^\s*NONE\b/i.test(reply)) return { kind: "none" };
-	return { kind: "unknown" };
+interface Find {
+	article: string;
+	search: string;
+	kind: string;
 }
 
-async function pickPhoto(
+function parseFind(reply: string): Find | "none" | undefined {
+	if (/^\s*NONE\b/i.test(reply)) return "none";
+	const line = (name: string) => new RegExp(`^\\s*${name}:\\s*(.+?)\\s*$`, "im").exec(reply)?.[1]?.replace(/^"|"$/g, "");
+	const search = line("SEARCH");
+	const article = line("ARTICLE") ?? "";
+	if (!search && !article) return undefined;
+	const kind = line("KIND")?.toLowerCase() ?? "any";
+	return { article, search: search || article, kind: kind in KINDS ? kind : "any" };
+}
+
+function parseDrawing(reply: string): string | undefined {
+	const block = /```(mermaid|svg)[^\n]*\n([\s\S]*?)```/.exec(reply);
+	if (!block) return undefined;
+	const code = block[2].trim();
+	if (block[1] === "svg" && !/<svg[\s>]/.test(code)) return undefined;
+	const caption = /^\s*CAPTION:\s*(.+)$/im.exec(reply)?.[1]?.trim();
+	return `\`\`\`${block[1]}\n${code}\n\`\`\`${caption ? `\n\n*${caption}*` : ""}`;
+}
+
+async function pickImage(
 	runtime: ModelRuntime,
 	model: Model<Api>,
 	req: IllustrateRequest,
-	query: string,
-	kind: string,
+	find: Find,
 	signal?: AbortSignal,
 ): Promise<string | undefined> {
-	let candidates: Candidate[] = await searchImages(query, "any", kind, signal);
-	if (candidates.length === 0 && kind !== "any") candidates = await searchImages(query, "any", "any", signal);
+	const options = { article: find.article, limit: 8 };
+	let candidates: Candidate[] = await searchImages(find.search, "any", find.kind, signal, options);
+	if (candidates.length === 0 && find.kind !== "any") {
+		candidates = await searchImages(find.search, "any", "any", signal, options);
+	}
 	candidates = candidates.filter((c) => !req.shown?.some((s) => s.includes(c.url)));
 	if (candidates.length === 0) return undefined;
 
@@ -140,9 +147,9 @@ async function pickPhoto(
 	const content: (TextContent | ImageContent)[] = [
 		{
 			type: "text",
-			text: `${describe({ ...req, shown: undefined })}\n\nThese images were found for "${query}".${
+			text: `${describe({ ...req, shown: undefined })}\n\nThese images were found.${
 				vision ? " Each is shown after its description." : " You can't see them, so go by the descriptions."
-			} Choose the one that clearly shows what this part of the lesson is about.\n\nReply with only: <number> | <short, accurate caption>\nReply 0 if none clearly fits.`,
+			} Choose the one that best shows what this part of the lesson is about: it must be accurate and clearly relevant. Prefer clear, labelled, good-quality images.\n\nReply with only: <number> | <short, accurate caption>\nReply 0 if none clearly fits.`,
 		},
 	];
 	for (const [i, c] of candidates.entries()) {
@@ -152,7 +159,13 @@ async function pickPhoto(
 			if (img) content.push({ type: "image", ...img });
 		}
 	}
-	const reply = await ask(runtime, model, "You pick pictures for a medical learning app. Be strict: only pick an image that clearly fits.", content, signal);
+	const reply = await ask(
+		runtime,
+		model,
+		"You pick pictures for a medical learning app. Only pick an image that fits; it's fine to reply 0.",
+		content,
+		signal,
+	);
 	const m = /^\s*(\d+)\s*(?:\|\s*(.+))?$/m.exec(reply);
 	const chosen = m ? candidates[Number(m[1]) - 1] : undefined;
 	if (!chosen) return undefined;
