@@ -34,6 +34,10 @@ function Item({ item, store }: { item: TranscriptItem; store: TutorStore }) {
 			const answer = (answer: unknown) => store.send({ type: "answer", id: item.id, answer });
 			if (pending?.kind === "quiz") return <QuizCard quiz={pending} onAnswer={answer} />;
 			if (pending?.kind === "ask") return <AskCard ask={pending} onAnswer={answer} />;
+			if (pending?.kind === "graded")
+				return (
+					<QuizResult question={item.question} details={item.details} result={pending.result} onNext={() => answer({})} />
+				);
 			if (item.result) {
 				return item.kind === "quiz" ? (
 					<QuizResult question={item.question} details={item.details} result={item.result} />
@@ -41,6 +45,8 @@ function Item({ item, store }: { item: TranscriptItem; store: TutorStore }) {
 					<AskResult question={item.question} details={item.details} result={item.result} />
 				);
 			}
+			// Queued behind the card the learner is on now: show it when its turn comes.
+			if (Object.keys(store.interactions).length > 0) return null;
 			return <div className="card muted">Preparing a {item.kind === "quiz" ? "quiz" : "question"}…</div>;
 		}
 	}
@@ -66,7 +72,7 @@ export function App() {
 
 	const busy = state?.busy ?? false;
 	const needsSetup = state !== null && !state.model;
-	const waitingOnCard = Object.keys(store.interactions).length > 0;
+	const waitingOnCard = Object.values(store.interactions).some((i) => i.kind !== "graded");
 
 	// First visit with no AI connected: open settings straight away.
 	useEffect(() => {
@@ -197,7 +203,7 @@ export function App() {
 								<Markdown text={streaming} streaming />
 							</div>
 						)}
-						{busy && !waitingOnCard && (streaming === null || streaming.trim() === "") && (
+						{busy && Object.keys(store.interactions).length === 0 && (streaming === null || streaming.trim() === "") && (
 							<div className="thinking">
 								<span />
 								<span />
