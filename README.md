@@ -12,27 +12,66 @@ The original runs inside the [pi](https://github.com/earendil-works/pi) coding a
 
 ## Getting started
 
-You need **Node.js 22.19 or newer**. If you don't have it, download the **LTS** version from [nodejs.org](https://nodejs.org) and install it like any other app.
+Each installer sets up everything Pi Learn needs (including its own copy of Node.js) and adds a **Pi Learn** icon. No other software is needed. Run it again any time to update to the latest version; your lessons and sign-ins are kept.
 
-### The easy way
+### Windows
 
-1. On this repository's GitHub page, click the green **Code** button, then **Download ZIP**. Unzip it somewhere you'll find again.
-2. Open the folder and double-click:
-   - **Mac:** `start.command`. If macOS says it can't be opened, right-click it, choose **Open**, then **Open** again.
-   - **Windows:** `start.bat`. If Windows SmartScreen warns you, click **More info**, then **Run anyway**.
-3. The first start installs everything, which takes a minute or two. Then your browser opens at <http://127.0.0.1:4747>.
-4. Settings opens automatically the first time. Connect an AI provider, pick a model, close Settings, and type what you want to learn.
+1. Press the <kbd>Windows</kbd> key, type `PowerShell`, and press <kbd>Enter</kbd>.
+2. Copy this line, paste it into the PowerShell window (right-click pastes), and press <kbd>Enter</kbd>:
+   ```powershell
+   irm https://raw.githubusercontent.com/mryeburn/pi-learn-userfriendlyinterface/main/scripts/install-windows.ps1 | iex
+   ```
+3. When it says **Done!**, close the window and double-click **Pi Learn** on your desktop (it's in the Start menu too).
 
-Leave the terminal window open while you use Pi Learn. Close it (or press <kbd>Ctrl</kbd>+<kbd>C</kbd> in it) to stop.
+### Mac
 
-### From a terminal
+1. Press <kbd>⌘ Command</kbd>+<kbd>Space</kbd>, type `Terminal`, and press <kbd>Enter</kbd>.
+2. Copy this line, paste it into the Terminal window, and press <kbd>Enter</kbd>:
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/mryeburn/pi-learn-userfriendlyinterface/main/scripts/install.sh | bash
+   ```
+3. When it says **Done!**, close the window and click **Pi Learn** in your Dock.
 
-```bash
-git clone https://github.com/mryeburn/pi-learn-userfriendlyinterface.git
-cd pi-learn-userfriendlyinterface
-npm install
-npm start
-```
+### Chromebook
+
+1. Turn on Linux, once: open **Settings**, go to **About ChromeOS** › **Developers** (on older Chromebooks, **Advanced** › **Developers**), and next to **Linux development environment** click **Set up**. Follow the steps; it takes a few minutes.
+2. Open the **Terminal** app, then click **penguin**.
+3. Copy this line, paste it into the Terminal (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd>), and press <kbd>Enter</kbd>:
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/mryeburn/pi-learn-userfriendlyinterface/main/scripts/install.sh | bash
+   ```
+4. When it says **Done!**, close the Terminal. Open the launcher, go into the **Linux apps** folder, and click **Pi Learn**. Right-click it and choose **Pin to shelf** to keep it handy.
+
+The same command works on other Linux computers (Debian or Ubuntu based).
+
+### First start
+
+Pi Learn opens in your browser at <http://127.0.0.1:4747>, and Settings opens automatically the first time. Connect an AI provider, pick a model, close Settings, and type what you want to learn.
+
+Pi Learn keeps running quietly in the background after you close the browser tab, so the icon opens it instantly next time. Restarting the computer stops it.
+
+### Without the installer
+
+You need **Node.js 22.19 or newer** from [nodejs.org](https://nodejs.org) (the **LTS** version). Then either:
+
+- Download this repository (green **Code** button › **Download ZIP**), unzip it, and double-click `start.command` (Mac) or `start.bat` (Windows). Leave the window that opens running while you use Pi Learn.
+- Or, in a terminal:
+  ```bash
+  git clone https://github.com/mryeburn/pi-learn-userfriendlyinterface.git
+  cd pi-learn-userfriendlyinterface
+  npm install
+  npm start
+  ```
+
+### Where things are
+
+| | Mac and Linux | Windows |
+|---|---|---|
+| The app | `~/pi-learn` | `%USERPROFILE%\pi-learn` |
+| Lessons, settings, Node.js and the log (`app.log`) | `~/.pi-learn-web` | `%USERPROFILE%\.pi-learn-web` |
+| AI sign-ins | `~/.pi/agent/auth.json` | `%USERPROFILE%\.pi\agent\auth.json` |
+
+To uninstall, delete the `pi-learn` and `.pi-learn-web` folders and the Pi Learn icon.
 
 ## Which AI should I connect?
 
