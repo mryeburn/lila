@@ -13,6 +13,8 @@
 	--wrong: #b91c1c;
 	--wrong-soft: #fdecec;
 	--warn-soft: #fff6e0;
+	--card-tint: #f5f4ff;
+	--field-border: #bdb9cc;
 	--shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 4px 16px rgb(0 0 0 / 0.04);
 	--radius: 14px;
 	--reading: "Iowan Old Style", "Charter", "Georgia", "Cambria", serif;
@@ -36,6 +38,8 @@
 		--wrong: #f87171;
 		--wrong-soft: #3a1c1c;
 		--warn-soft: #3a3220;
+		--card-tint: #23223a;
+		--field-border: #56556c;
 		--shadow: none;
 		color-scheme: dark;
 	}
@@ -522,9 +526,21 @@ a {
 	padding: 18px 20px;
 	box-shadow: var(--shadow);
 }
+/* A card waiting on the learner: tinted, with an accent stripe, so it reads
+   as LILA talking, not as a box to type in. Real typing boxes inside it are white. */
 .card.pending {
-	border-color: var(--accent);
-	box-shadow: 0 0 0 3px var(--accent-soft);
+	background: var(--card-tint);
+	border-left: 5px solid var(--accent);
+}
+.card.pending .option {
+	background: var(--surface);
+	box-shadow: 0 1px 2px rgb(0 0 0 / 0.06);
+}
+.card.pending .note,
+.card.pending .text-input {
+	background: var(--surface);
+	border-color: var(--field-border);
+	box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.06);
 }
 .card.muted {
 	color: var(--muted);
@@ -872,18 +888,29 @@ button.option:not(:disabled):hover {
 	white-space: nowrap;
 	font-size: 13px;
 }
-/* The tutor inviting questions after a quiz answer or a teaching section. */
-.invite-questions {
-	margin: 14px 0 0;
-	padding: 10px 14px;
-	border-radius: 10px;
-	background: var(--accent-soft);
-	color: var(--text);
+/* "Ask something, or go on", after a quiz answer or a teaching section. */
+.questions-text {
+	margin: 0;
 	font-size: 15px;
 	line-height: 1.45;
 }
-.invite-card .invite-questions {
-	margin: 0;
+.ask-row {
+	display: flex;
+	gap: 8px;
+	margin-top: 10px;
+}
+.ask-row .text-input {
+	background: var(--surface);
+	border-color: var(--field-border);
+	box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.06);
+}
+/* Under a graded quiz answer it gets its own tinted panel. */
+.quiz-card .questions-box {
+	margin-top: 16px;
+	padding: 14px 16px;
+	border-radius: 10px;
+	background: var(--card-tint);
+	border-left: 4px solid var(--accent);
 }
 
 /* ── Updates (Settings) ──────────────────────────────────────────────────── */

@@ -97,9 +97,10 @@ function Item({ item, store }: { item: TranscriptItem; store: TutorStore }) {
 			if (pending?.kind === "pause")
 				return (
 					<QuestionsInvite
-						text="Do you have any questions about this section? Type it in the box below, or continue to the quiz question."
-						continueLabel="No questions, show me the question →"
+						text="If you have a question about this section, type it in here. Otherwise, continue the quiz."
+						continueLabel="Next quiz question →"
 						onContinue={() => answer({})}
+						onAsk={(text) => answer({ text })}
 					/>
 				);
 			const pictures =
@@ -113,6 +114,7 @@ function Item({ item, store }: { item: TranscriptItem; store: TutorStore }) {
 						details={item.details}
 						result={pending.result}
 						onNext={() => answer({})}
+						onAsk={(text) => store.send({ type: "prompt", text })}
 						pictures={pictures}
 					/>
 				);
@@ -331,9 +333,10 @@ export function App() {
 						{inviteQuestions && (
 							<QuestionsInvite
 								key={last.id}
-								text="Do you have any questions about this section? Type it in the box below, or carry on."
-								continueLabel="No questions, continue →"
+								text="If you have a question about this section, type it in here. Otherwise, continue the lesson."
+								continueLabel="Continue the lesson →"
 								onContinue={() => submit("No questions, please continue.")}
+								onAsk={(text) => submit(text)}
 							/>
 						)}
 						{busy && Object.keys(store.interactions).length === 0 && (streaming === null || streaming.trim() === "") && (

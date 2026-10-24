@@ -101,6 +101,7 @@ export function QuizResult({
 	details,
 	result,
 	onNext,
+	onAsk,
 	pictures,
 }: {
 	question: string;
@@ -108,10 +109,11 @@ export function QuizResult({
 	result: any;
 	/** Set while the lesson waits for the learner to move on. */
 	onNext?: () => void;
+	/** Sends a question the learner typed into the card. */
+	onAsk?: (text: string) => void;
 	/** Pictures the app added for the explanation. */
 	pictures?: ReactNode;
 }) {
-	const [sent, setSent] = useState(false);
 	// The learner asked about the section before seeing this question; the
 	// tutor will ask it again, so don't reveal it here.
 	if (result.status === "paused") {
@@ -168,26 +170,12 @@ export function QuizResult({
 			)}
 			{pictures}
 			{onNext && (
-				<div className="invite-questions">
-					💬 Do you have any questions about this question or its answer? Type it in the box below, or click Next
-					question.
-				</div>
-			)}
-			{onNext && (
-				<div className="card-actions">
-					<button
-						type="button"
-						className="primary"
-						autoFocus
-						disabled={sent}
-						onClick={() => {
-							setSent(true);
-							onNext();
-						}}
-					>
-						Next question →
-					</button>
-				</div>
+				<QuestionsBox
+					text="If you have a question about this question or its answer, type it in here. Otherwise, continue the lesson."
+					continueLabel="Continue →"
+					onContinue={onNext}
+					onAsk={onAsk}
+				/>
 			)}
 		</div>
 	);
@@ -333,19 +321,58 @@ export function AskResult({ question, details, result }: { question: string; det
 }
 
 /** The tutor's invitation to ask about what was just taught, with a button to go on. */
-export function QuestionsInvite({
+export function QuestionsInvite(props: { text: string; continueLabel: string; onContinue: () => void; onAsk: (text: string) => void }) {
+	return (
+		<div className="card invite-card pending">
+			<div className="card-label">💬 Questions?</div>
+			<QuestionsBox {...props} />
+		</div>
+	);
+}
+
+/** "Ask something, or go on": a typing box with an Ask button, then the button that moves on. */
+function QuestionsBox({
 	text,
 	continueLabel,
 	onContinue,
+	onAsk,
 }: {
 	text: string;
 	continueLabel: string;
 	onContinue: () => void;
+	onAsk?: (text: string) => void;
 }) {
+	const [question, setQuestion] = useState("");
 	const [sent, setSent] = useState(false);
+	const ask = () => {
+		if (!question.trim() || !onAsk) return;
+		setSent(true);
+		onAsk(question.trim());
+	};
 	return (
-		<div className="card invite-card pending">
-			<div className="invite-questions">💬 {text}</div>
+		<div className="questions-box">
+			<p className="questions-text">{text}</p>
+			{onAsk && (
+				<div className="ask-row">
+					<input
+						className="text-input"
+						placeholder="Type your question…"
+						aria-label="Your question"
+						value={question}
+						onChange={(e) => setQuestion(e.target.value)}
+						onKeyDown={(e) => {
+							if (e.key === "Enter") {
+								e.preventDefault();
+								ask();
+							}
+						}}
+						disabled={sent}
+					/>
+					<button type="button" className="secondary" disabled={sent || !question.trim()} onClick={ask}>
+						Ask
+					</button>
+				</div>
+			)}
 			<div className="card-actions">
 				<button
 					type="button"
