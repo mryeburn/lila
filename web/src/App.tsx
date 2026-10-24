@@ -147,6 +147,16 @@ export function App() {
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const stick = useRef(true);
 	const inputRef = useRef<HTMLTextAreaElement>(null);
+	/** Set when the learner pressed "Check for updates", so the answer is shown even when there's nothing new. */
+	const checkedByHand = useRef(false);
+
+	useEffect(() => {
+		const update = store.update;
+		if (!checkedByHand.current || !update || update.state === "checking") return;
+		checkedByHand.current = false;
+		if (update.state === "current") store.showToast("You have the latest version of Pi Learn.");
+		if (update.state === "error") store.showToast(update.error ?? "Couldn't check for updates.");
+	}, [store.update, store.showToast]);
 
 	const busy = state?.busy ?? false;
 	const needsSetup = state !== null && !state.model;
@@ -224,6 +234,19 @@ export function App() {
 						</button>
 					))}
 				</div>
+				{store.update?.supported && (
+					<button
+						type="button"
+						className="secondary wide"
+						disabled={store.update.state === "checking" || store.update.state === "updating"}
+						onClick={() => {
+							checkedByHand.current = true;
+							send({ type: "check_update" });
+						}}
+					>
+						{store.update.state === "checking" ? "Checking for updates…" : "⟳ Check for updates"}
+					</button>
+				)}
 				<button type="button" className="secondary wide" onClick={() => setSettingsOpen(true)}>
 					⚙ Settings
 				</button>
@@ -252,6 +275,19 @@ export function App() {
 				</header>
 
 				{!connected && <div className="banner">Reconnecting to Pi Learn… Is the app still running in your terminal?</div>}
+				{store.update?.state === "available" && (
+					<div className="banner update-banner">
+						<span>A new version of Pi Learn is available.</span>
+						<button type="button" className="primary small" onClick={() => send({ type: "start_update" })}>
+							Update now
+						</button>
+					</div>
+				)}
+				{store.update?.state === "updating" && (
+					<div className="banner update-banner">
+						Updating Pi Learn. This takes a minute or two; the page will reload by itself.
+					</div>
+				)}
 				{state?.error && <div className="banner error">{state.error}</div>}
 
 				<div

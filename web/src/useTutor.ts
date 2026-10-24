@@ -31,11 +31,14 @@ export interface TutorStore {
 	login: LoginFlow | null;
 	toast: string | null;
 	update: UpdateStatus | null;
+	/** The end of the picture log, once asked for. */
+	pictureLog: string | null;
 	/** True while a file or link is being read. */
 	addingResource: boolean;
 	send: (msg: ClientMessage) => void;
 	resetLogin: () => void;
 	clearToast: () => void;
+	showToast: (text: string) => void;
 }
 
 function download(filename: string, text: string) {
@@ -61,6 +64,7 @@ export function useTutor(): TutorStore {
 	const [login, setLogin] = useState<LoginFlow | null>(null);
 	const [toast, setToast] = useState<string | null>(null);
 	const [update, setUpdate] = useState<UpdateStatus | null>(null);
+	const [pictureLog, setPictureLog] = useState<string | null>(null);
 	const [addingResource, setAddingResource] = useState(false);
 	const versionRef = useRef<string | null>(null);
 
@@ -92,6 +96,9 @@ export function useTutor(): TutorStore {
 						break;
 					case "update":
 						setUpdate(msg.status);
+						break;
+					case "picture_log":
+						setPictureLog(msg.text);
 						break;
 					case "resource_done":
 						setAddingResource(false);
@@ -170,9 +177,11 @@ export function useTutor(): TutorStore {
 		login,
 		toast,
 		update,
+		pictureLog,
 		addingResource,
 		send,
 		resetLogin: useCallback(() => setLogin(null), []),
 		clearToast: useCallback(() => setToast(null), []),
+		showToast: useCallback((text: string) => setToast(text), []),
 	};
 }

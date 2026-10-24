@@ -10,8 +10,8 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
 import { type AppSettings, loadSettings, SESSIONS_DIR, saveSettings, WORKSPACE_DIR } from "./config.ts";
-import { illustrate } from "./illustrator.ts";
-import { createImageTool } from "./images.ts";
+import { buildLibrary, illustrate } from "./illustrator.ts";
+import { type Candidate, createImageTool } from "./images.ts";
 import { asMessage, type Material, parseMessage } from "./materials.ts";
 import { BASE_PROMPT, buildTeachingPrompt } from "./prompt.ts";
 import { createAskTool, createQuizTool, type InteractionBroker, type PendingInteraction } from "./tools.ts";
@@ -58,8 +58,20 @@ class LessonPictures {
 	readonly drawing = new Set<string>();
 	/** Parts whose broken diagram was already replaced once. */
 	readonly retried = new Set<string>();
+	/** Real images gathered for this lesson's topic (server/illustrator.ts). */
+	library: Candidate[] | undefined;
+	private libraryBuild: Promise<Candidate[]> | undefined;
+	private libraryEmptyAt = 0;
+	/** The last picture added was drawn rather than a real image. */
+	lastWasDrawing = false;
 
 	constructor(private readonly file: string | undefined) {
+		try {
+			const saved = this.libraryFile && fs.existsSync(this.libraryFile) ? JSON.parse(fs.readFileSync(this.libraryFile, "utf8")) : undefined;
+			if (Array.isArray(saved) && saved.length > 0) this.library = saved;
+		} catch {
+			// Gathered again when needed.
+		}
 		try {
 			const saved = file && fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
 			for (const [id, list] of Object.entries(saved)) {
@@ -72,7 +84,37 @@ class LessonPictures {
 
 	add(id: string, markdown: string): void {
 		this.byId.set(id, [...(this.byId.get(id) ?? []), markdown]);
+		this.lastWasDrawing = markdown.startsWith("```");
 		this.save();
+	}
+
+	/** Every image address already shown in this lesson. */
+	usedImages(): string[] {
+		return [...this.byId.values()].flat().flatMap((p) => p.match(/https:\/\/[^\s)"]+/g) ?? []);
+	}
+
+	/** The lesson's image library, gathered once (and again after a while if that found nothing). */
+	getLibrary(build: () => Promise<Candidate[]>): Promise<Candidate[]> {
+		if (this.library) return Promise.resolve(this.library);
+		if (!this.libraryBuild && Date.now() - this.libraryEmptyAt < 10 * 60_000) return Promise.resolve([]);
+		this.libraryBuild ??= build().then((library) => {
+			this.libraryBuild = undefined;
+			if (library.length === 0) this.libraryEmptyAt = Date.now();
+			if (library.length > 0) {
+				this.library = library;
+				try {
+					if (this.libraryFile) fs.writeFileSync(this.libraryFile, JSON.stringify(library));
+				} catch {
+					// Gathered again next time.
+				}
+			}
+			return library;
+		});
+		return this.libraryBuild;
+	}
+
+	private get libraryFile(): string | undefined {
+		return this.file?.replace(/\.pictures\.json$/, ".library.json");
 	}
 
 	remove(id: string, picture: string): void {
@@ -527,22 +569,42 @@ export class Tutor implements InteractionBroker {
 		if (!session?.model || pics.drawing.has(id)) return;
 		pics.drawing.add(id);
 		this.broadcast({ type: "transcript", items: this.transcript() });
-		void illustrate(this.runtime, session.model, {
-			topic: session.sessionName ?? "",
-			content,
-			purpose,
-			required,
-			shown: pics.byId.get(id),
-			retryAfterBroken: retry,
-		}).then((result) => {
-			pics.drawing.delete(id);
-			if (result.markdown) pics.add(id, result.markdown);
-			if (this.pictures !== pics) return;
-			if (!result.markdown && required) {
-				this.broadcast({ type: "error", message: "Pi Learn couldn't make a picture this time. Please try again." });
-			}
-			this.broadcast({ type: "transcript", items: this.transcript() });
-		});
+		const model = session.model;
+		const topic = session.sessionName ?? "";
+		const library = pics.getLibrary(() => buildLibrary(this.runtime, model, topic, this.lessonStart()));
+		void library
+			.then((library) =>
+				illustrate(this.runtime, model, {
+					topic,
+					content,
+					purpose,
+					required,
+					shown: pics.byId.get(id),
+					retryAfterBroken: retry,
+					library,
+					used: pics.usedImages(),
+					lastWasDrawing: pics.lastWasDrawing,
+					label: `${purpose} ${id}${required ? " (asked for)" : ""}`,
+				}),
+			)
+			.then((result) => {
+				pics.drawing.delete(id);
+				if (result.markdown) pics.add(id, result.markdown);
+				if (this.pictures !== pics) return;
+				if (!result.markdown && required) {
+					this.broadcast({ type: "error", message: "Pi Learn couldn't make a picture this time. Please try again." });
+				}
+				this.broadcast({ type: "transcript", items: this.transcript() });
+			});
+	}
+
+	/** The first part of the lesson as text: what the learner asked for and how the tutor began. */
+	private lessonStart(): string {
+		return this.transcript()
+			.filter((i) => i.kind === "user" || i.kind === "assistant")
+			.map((i) => (i as { text: string }).text)
+			.join("\n\n")
+			.slice(0, 4000);
 	}
 
 	async abort(): Promise<void> {

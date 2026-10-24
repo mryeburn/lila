@@ -91,6 +91,8 @@ export type ServerMessage =
 	| { type: "login_event"; event: LoginEvent }
 	| { type: "login_done"; ok: boolean; error?: string }
 	| { type: "export"; filename: string; markdown: string }
+	/** The end of the picture log, for the learner to copy and share. */
+	| { type: "picture_log"; text: string }
 	| { type: "error"; message: string };
 
 export type ClientMessage =
@@ -114,4 +116,5 @@ export type ClientMessage =
 	/** A picture the app added couldn't be shown. */
 	| { type: "picture_broken"; id: string; picture: string }
 	| { type: "check_update" }
+	| { type: "get_picture_log" }
 	| { type: "start_update" };

@@ -1094,3 +1094,23 @@ button.option:not(:disabled):hover {
 .quiz-card .app-pictures {
 	margin-top: 12px;
 }
+
+/* A new version is ready: offered at the top of the page. */
+.update-banner {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 12px;
+	flex-wrap: wrap;
+	background: var(--accent-soft);
+}
+.sidebar .secondary.wide + .secondary.wide {
+	margin-top: 8px;
+}
+.picture-log {
+	width: 100%;
+	margin: 6px 0 8px;
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	font-size: 12px;
+	resize: vertical;
+}
