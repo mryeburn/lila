@@ -114,6 +114,7 @@ Rules:
 - Make diagrams clear and attractive: group related nodes with mermaid classDef colors (for example classDef cause fill:#fee2e2,stroke:#dc2626; classDef effect fill:#dcfce7,stroke:#16a34a; classDef drug fill:#e0e7ff,stroke:#4f46e5), and use subgraphs for stages.
 - Double-check every label, number and arrow.
 - Never give away the answer to a question the learner hasn't answered yet.
+- Make diagrams tall rather than wide so the text stays readable: top to bottom (flowchart TD), no more than 4 boxes side by side, and labels of a few words.
 - Mermaid: put labels with spaces or symbols in double quotes, like A["Na+ influx"]. Don't use parentheses, colons or semicolons in unquoted labels. Use plain hyphens and ASCII arrows.`;
 
 export interface IllustrateResult {

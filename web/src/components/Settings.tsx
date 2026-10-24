@@ -259,7 +259,7 @@ export function Settings({ store, onClose }: { store: TutorStore; onClose: () =>
 					<p>LILA Interactive Learning Assistant.</p>
 					<p className="dedication">
 						Dedicated to the best teachers in my life: my grade 4 teacher, Mr. Roberts, my grade 7 teacher, Mrs.
-						Woodside, my Mandarin teacher, Mrs. Bi, and my pharmacology teacher Dr. Rudolf Vrba
+						Woodside, my Mandarin teacher, Mrs. Bi, and my pharmacology professor Dr. Rudolf Vrba
 					</p>
 				</section>
 			</div>

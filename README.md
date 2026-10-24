@@ -123,4 +123,4 @@ npm run typecheck
 
 ## Dedication
 
-Dedicated to the best teachers in my life: my grade 4 teacher, Mr. Roberts, my grade 7 teacher, Mrs. Woodside, my Mandarin teacher, Mrs. Bi, and my pharmacology teacher Dr. Rudolf Vrba
+Dedicated to the best teachers in my life: my grade 4 teacher, Mr. Roberts, my grade 7 teacher, Mrs. Woodside, my Mandarin teacher, Mrs. Bi, and my pharmacology professor Dr. Rudolf Vrba

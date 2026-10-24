@@ -1,6 +1,7 @@
 import DOMPurify from "dompurify";
 import "katex/dist/katex.min.css";
-import { memo, useEffect, useId, useState } from "react";
+import { memo, useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
@@ -48,6 +49,77 @@ function loadMermaid() {
 	return mermaidPromise;
 }
 
+// Mermaid sizes a diagram to the page width, so a wide one ends up with tiny
+// text that zooming the page can't fix. Show it at its own size instead; the
+// box scrolls sideways when it's wider than the page.
+function atNaturalSize(svg: string, scale = 1): string {
+	const doc = new DOMParser().parseFromString(svg, "image/svg+xml");
+	const root = doc.documentElement;
+	const [, , w, h] = (root.getAttribute("viewBox") ?? "").split(/[\s,]+/).map(Number);
+	if (root.nodeName !== "svg" || !(w > 0 && h > 0)) return svg;
+	root.setAttribute("width", String(Math.ceil(w * scale)));
+	root.setAttribute("height", String(Math.ceil(h * scale)));
+	root.style.maxWidth = "none";
+	root.style.maxHeight = "none";
+	return new XMLSerializer().serializeToString(root);
+}
+
+/** The diagram for the full-screen view: filling the screen, and never smaller than 1.5× its own size. */
+function enlarged(svg: string): string {
+	const viewBox = /viewBox="([^"]*)"/.exec(svg)?.[1] ?? "";
+	const [, , w, h] = viewBox.split(/[\s,]+/).map(Number);
+	if (!(w > 0 && h > 0)) return svg;
+	const fit = Math.min((window.innerWidth - 64) / w, (window.innerHeight - 64) / h);
+	return atNaturalSize(svg, Math.max(fit, 1.5));
+}
+
+/** A diagram in its box; clicking it opens it full screen. */
+function DiagramBox({ html, className }: { html: string; className: string }) {
+	const [open, setOpen] = useState(false);
+	const box = useRef<HTMLDivElement>(null);
+	// A wide diagram usually starts from a box at the top middle, so show the middle first.
+	useEffect(() => {
+		const el = box.current;
+		if (el) el.scrollLeft = (el.scrollWidth - el.clientWidth) / 2;
+	}, [html]);
+	useEffect(() => {
+		if (!open) return;
+		const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	}, [open]);
+	return (
+		<>
+			<div
+				ref={box}
+				className={`diagram zoomable ${className}`}
+				role="button"
+				tabIndex={0}
+				title="Click to enlarge"
+				onClick={() => setOpen(true)}
+				onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && setOpen(true)}
+				dangerouslySetInnerHTML={{ __html: html }}
+			/>
+			{open &&
+				createPortal(
+					<div className="diagram-zoom" role="dialog" aria-label="Enlarged diagram" onClick={() => setOpen(false)}>
+						<button type="button" className="diagram-zoom-close" aria-label="Close" onClick={() => setOpen(false)}>
+							✕
+						</button>
+						<div
+							className="diagram-zoom-body"
+							ref={(el) => {
+								if (el) el.scrollLeft = (el.scrollWidth - el.clientWidth) / 2;
+							}}
+							onClick={(e) => e.stopPropagation()}
+							dangerouslySetInnerHTML={{ __html: enlarged(html) }} />
+					</div>,
+					document.body,
+				)}
+		</>
+	);
+}
+
 function MermaidDiagram({ code, onBroken }: { code: string; onBroken?: () => void }) {
 	const id = `m${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
 	const [svg, setSvg] = useState<string | null>(null);
@@ -81,13 +153,13 @@ function MermaidDiagram({ code, onBroken }: { code: string; onBroken?: () => voi
 		);
 	}
 	if (!svg) return <div className="diagram diagram-loading">Drawing diagram…</div>;
-	return <div className="diagram" dangerouslySetInnerHTML={{ __html: svg }} />;
+	return <DiagramBox className="mermaid" html={atNaturalSize(svg)} />;
 }
 
 function SvgPicture({ code }: { code: string }) {
 	const clean = DOMPurify.sanitize(code, { USE_PROFILES: { svg: true, svgFilters: true } });
 	if (!clean.includes("<svg")) return <pre>{code}</pre>;
-	return <div className="diagram picture" dangerouslySetInnerHTML={{ __html: clean }} />;
+	return <DiagramBox className="picture" html={clean} />;
 }
 
 // Photos may only come from the trusted libraries the tutor's find_image tool
