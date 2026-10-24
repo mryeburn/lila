@@ -175,6 +175,9 @@ export function createQuizTool(broker: InteractionBroker): ToolDefinition<typeof
 			"Use the quiz tool to test the user with a graded multiple-choice or multi-select question (required correct answer + required explanation). For non-graded questions, use ask_user_question.",
 		promptGuidelines: QUIZ_GUIDELINES,
 		parameters: QuizParams,
+		// One card at a time. In parallel mode, pi holds back every result until
+		// the whole batch is answered, so answered cards would go blank.
+		executionMode: "sequential",
 
 		async execute(toolCallId, params, signal) {
 			const question = params.question;
@@ -298,6 +301,7 @@ export function createAskTool(broker: InteractionBroker): ToolDefinition<typeof 
 			"Use this tool to ask exactly one clarifying, preference, or decision question (no right answer) before continuing.",
 		promptGuidelines: ASK_GUIDELINES,
 		parameters: AskParams,
+		executionMode: "sequential",
 
 		async execute(toolCallId, params, signal) {
 			const question = params.question;

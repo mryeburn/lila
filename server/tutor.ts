@@ -46,6 +46,8 @@ export class Tutor implements InteractionBroker {
 	private lastError: string | undefined;
 	private settings: AppSettings = loadSettings();
 	private busy = false;
+	/** Results of answered cards whose tool-result message pi hasn't added yet. */
+	private finishedResults = new Map<string, unknown>();
 
 	constructor(
 		readonly runtime: ModelRuntime,
@@ -135,7 +137,12 @@ export class Tutor implements InteractionBroker {
 			} else if (msg.role === "toolResult") {
 				const item = byToolCall.get(msg.toolCallId);
 				if (item) item.result = msg.details ?? { status: "unavailable", message: textOf(msg.content) };
+				this.finishedResults.delete(msg.toolCallId);
 			}
+		}
+		for (const [id, result] of this.finishedResults) {
+			const item = byToolCall.get(id);
+			if (item && !item.result) item.result = result as any;
 		}
 		return items;
 	}
@@ -176,6 +183,7 @@ export class Tutor implements InteractionBroker {
 	async openLesson(path?: string): Promise<void> {
 		if (this.busy && this.session) await this.session.abort();
 		this.dispose();
+		this.finishedResults.clear();
 		this.lastError = undefined;
 
 		const model = await this.pickModel();
@@ -349,8 +357,12 @@ export class Tutor implements InteractionBroker {
 				}
 				break;
 			}
+			case "tool_execution_end": {
+				const { toolCallId, toolName, result } = event as any;
+				if (TOOL_NAMES.includes(toolName) && result?.details) this.finishedResults.set(toolCallId, result.details);
+			}
+			// falls through
 			case "message_end":
-			case "tool_execution_end":
 				this.streamingText = null;
 				this.broadcast({ type: "streaming", text: null });
 				this.broadcast({ type: "transcript", items: this.transcript() });
