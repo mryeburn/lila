@@ -12,10 +12,36 @@ function loadMermaid() {
 		const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
 		mermaid.initialize({
 			startOnLoad: false,
-			theme: dark ? "dark" : "neutral",
+			// "base" takes the app's colors: soft indigo boxes, clear lines, readable text.
+			theme: "base",
 			securityLevel: "strict",
-			// The neutral theme draws chart lines in pale grey; use the app's colors.
-			themeVariables: { xyChart: { plotColorPalette: "#6366f1, #16a34a, #dc2626, #d97706, #0891b2" } },
+			flowchart: { curve: "basis", padding: 14 },
+			themeVariables: dark
+				? {
+						darkMode: true,
+						fontSize: "16px",
+						background: "#1f2937",
+						primaryColor: "#312e81",
+						primaryTextColor: "#eef2ff",
+						primaryBorderColor: "#818cf8",
+						secondaryColor: "#064e3b",
+						tertiaryColor: "#78350f",
+						lineColor: "#a5b4fc",
+						textColor: "#e5e7eb",
+						xyChart: { plotColorPalette: "#818cf8, #4ade80, #f87171, #fbbf24, #22d3ee" },
+					}
+				: {
+						fontSize: "16px",
+						primaryColor: "#eef2ff",
+						primaryTextColor: "#1e1b4b",
+						primaryBorderColor: "#6366f1",
+						secondaryColor: "#ecfdf5",
+						tertiaryColor: "#fff7ed",
+						lineColor: "#4f46e5",
+						textColor: "#1f2937",
+						// Line and bar charts otherwise come out pale grey.
+						xyChart: { plotColorPalette: "#6366f1, #16a34a, #dc2626, #d97706, #0891b2" },
+					},
 		});
 		return mermaid;
 	});

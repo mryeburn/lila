@@ -152,6 +152,23 @@ export class Tutor implements InteractionBroker {
 		});
 	}
 
+	/** After a long teaching section, the lesson pauses for questions before the quiz. */
+	async beforeQuiz(toolCallId: string, signal: AbortSignal | undefined): Promise<string | undefined> {
+		const msg = (this.session?.messages as any[] | undefined)?.find(
+			(m) => m.role === "assistant" && (m.content ?? []).some((b: any) => b.type === "toolCall" && b.id === toolCallId),
+		);
+		let text = "";
+		for (const block of msg?.content ?? []) {
+			if (block.type === "text") text += block.text;
+			if (block.type !== "toolCall") continue;
+			if (block.id === toolCallId) break;
+			if (TOOL_NAMES.includes(block.name)) text = "";
+		}
+		if (text.trim().length < MIN_SECTION_LENGTH) return undefined;
+		const answer = await this.request<{ text?: string }>({ kind: "pause", id: toolCallId }, signal);
+		return answer?.text?.trim() || undefined;
+	}
+
 	answer(id: string, answer: unknown): void {
 		this.pending.get(id)?.resolve(answer ?? {});
 	}
@@ -362,7 +379,8 @@ export class Tutor implements InteractionBroker {
 		if (this.pending.size > 0) {
 			for (const { interaction, resolve } of [...this.pending.values()]) {
 				if (interaction.kind === "graded") continue;
-				if (interaction.kind === "quiz") resolve({ skippedWith: cardText });
+				if (interaction.kind === "pause") resolve({ text: cardText });
+				else if (interaction.kind === "quiz") resolve({ skippedWith: cardText });
 				else if (interaction.mode === "text") resolve({ text: cardText });
 				else resolve({ other: cardText });
 			}

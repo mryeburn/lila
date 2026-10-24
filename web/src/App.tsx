@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { TranscriptItem } from "../../server/protocol.ts";
 import { AddResource } from "./components/AddResource.tsx";
-import { AskCard, AskResult, QuizCard, QuizResult } from "./components/Cards.tsx";
+import { AskCard, AskResult, QuestionsInvite, QuizCard, QuizResult } from "./components/Cards.tsx";
 import { Markdown } from "./components/Markdown.tsx";
 import { Settings } from "./components/Settings.tsx";
 import { type TutorStore, useTutor } from "./useTutor.ts";
@@ -15,6 +15,8 @@ const STARTERS = [
 
 // Short tutor messages ("Great, let's start") don't get a picture button.
 const MIN_PICTURE_TEXT = 120;
+// A tutor message at least this long is a teaching section: invite questions after it.
+const MIN_SECTION_TEXT = 400;
 
 /** Pictures the app added under a tutor message or quiz, and the button to ask for one. */
 function Pictures({
@@ -92,6 +94,14 @@ function Item({ item, store }: { item: TranscriptItem; store: TutorStore }) {
 			const answer = (answer: unknown) => store.send({ type: "answer", id: item.id, answer });
 			if (pending?.kind === "quiz") return <QuizCard quiz={pending} onAnswer={answer} />;
 			if (pending?.kind === "ask") return <AskCard ask={pending} onAnswer={answer} />;
+			if (pending?.kind === "pause")
+				return (
+					<QuestionsInvite
+						text="Do you have any questions about this section? Type it in the box below, or continue to the quiz question."
+						continueLabel="No questions, show me the question →"
+						onContinue={() => answer({})}
+					/>
+				);
 			const pictures =
 				item.kind === "quiz" ? (
 					<Pictures id={item.id} pictures={item.pictures} drawing={item.drawing} canAsk store={store} />
@@ -171,6 +181,13 @@ export function App() {
 	};
 
 	const last = items.at(-1);
+	// The tutor finished a teaching section and is waiting: invite questions.
+	const inviteQuestions =
+		connected &&
+		!busy &&
+		Object.keys(store.interactions).length === 0 &&
+		last?.kind === "assistant" &&
+		last.text.trim().length >= MIN_SECTION_TEXT;
 	const lastIsStreamingDuplicate = streaming !== null && last?.kind === "assistant" && last.text === streaming;
 
 	return (
@@ -270,6 +287,14 @@ export function App() {
 							<div className="msg tutor">
 								<Markdown text={streaming} streaming />
 							</div>
+						)}
+						{inviteQuestions && (
+							<QuestionsInvite
+								key={last.id}
+								text="Do you have any questions about this section? Type it in the box below, or carry on."
+								continueLabel="No questions, continue →"
+								onContinue={() => submit("No questions, please continue.")}
+							/>
 						)}
 						{busy && Object.keys(store.interactions).length === 0 && (streaming === null || streaming.trim() === "") && (
 							<div className="thinking">

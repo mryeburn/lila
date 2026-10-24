@@ -112,6 +112,15 @@ export function QuizResult({
 	pictures?: ReactNode;
 }) {
 	const [sent, setSent] = useState(false);
+	// The learner asked about the section before seeing this question; the
+	// tutor will ask it again, so don't reveal it here.
+	if (result.status === "paused") {
+		return (
+			<div className="card quiz-card muted">
+				<p className="card-status">You asked a question before the quiz: {result.skippedWith}</p>
+			</div>
+		);
+	}
 	if (result.status !== "answered") {
 		return (
 			<div className="card quiz-card muted">
@@ -153,7 +162,12 @@ export function QuizResult({
 				</div>
 			)}
 			{pictures}
-			{onNext && <p className="next-hint">Any questions about this? Type them below, or click Next question.</p>}
+			{onNext && (
+				<div className="invite-questions">
+					💬 Do you have any questions about this question or its answer? Type it in the box below, or click Next
+					question.
+				</div>
+			)}
 			{onNext && (
 				<div className="card-actions">
 					<button
@@ -309,6 +323,37 @@ export function AskResult({ question, details, result }: { question: string; det
 			) : (
 				<p className="card-status">{result.status === "cancelled" ? "Skipped" : result.message}</p>
 			)}
+		</div>
+	);
+}
+
+/** The tutor's invitation to ask about what was just taught, with a button to go on. */
+export function QuestionsInvite({
+	text,
+	continueLabel,
+	onContinue,
+}: {
+	text: string;
+	continueLabel: string;
+	onContinue: () => void;
+}) {
+	const [sent, setSent] = useState(false);
+	return (
+		<div className="card invite-card pending">
+			<div className="invite-questions">💬 {text}</div>
+			<div className="card-actions">
+				<button
+					type="button"
+					className="primary"
+					disabled={sent}
+					onClick={() => {
+						setSent(true);
+						onContinue();
+					}}
+				>
+					{continueLabel}
+				</button>
+			</div>
 		</div>
 	);
 }

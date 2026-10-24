@@ -809,10 +809,18 @@ button.option:not(:disabled):hover {
 	white-space: nowrap;
 	font-size: 13px;
 }
-.next-hint {
-	margin: 12px 0 0;
-	font-size: 14px;
-	color: var(--muted);
+/* The tutor inviting questions after a quiz answer or a teaching section. */
+.invite-questions {
+	margin: 14px 0 0;
+	padding: 10px 14px;
+	border-radius: 10px;
+	background: var(--accent-soft);
+	color: var(--text);
+	font-size: 15px;
+	line-height: 1.45;
+}
+.invite-card .invite-questions {
+	margin: 0;
 }
 
 /* ── Updates (Settings) ──────────────────────────────────────────────────── */
