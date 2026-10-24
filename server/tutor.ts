@@ -247,8 +247,14 @@ export class Tutor implements InteractionBroker {
 		this.lastError = undefined;
 		// A card is waiting: the run is paused inside that tool call, so a normal
 		// message would queue behind it forever. Use the text as the card's answer.
+		// A graded quiz just waits for "Next question", so it's dismissed and the
+		// text goes to the tutor as a normal message.
+		for (const { interaction, resolve } of [...this.pending.values()]) {
+			if (interaction.kind === "graded") resolve({});
+		}
 		if (this.pending.size > 0) {
 			for (const { interaction, resolve } of [...this.pending.values()]) {
+				if (interaction.kind === "graded") continue;
 				if (interaction.kind === "quiz") resolve({ skippedWith: text });
 				else if (interaction.mode === "text") resolve({ text });
 				else resolve({ other: text });

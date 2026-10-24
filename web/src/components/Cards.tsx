@@ -96,7 +96,19 @@ export function QuizCard({ quiz, onAnswer }: { quiz: Quiz; onAnswer: (answer: Qu
 	);
 }
 
-export function QuizResult({ question, details, result }: { question: string; details?: string; result: any }) {
+export function QuizResult({
+	question,
+	details,
+	result,
+	onNext,
+}: {
+	question: string;
+	details?: string;
+	result: any;
+	/** Set while the lesson waits for the learner to move on. */
+	onNext?: () => void;
+}) {
+	const [sent, setSent] = useState(false);
 	if (result.status !== "answered") {
 		return (
 			<div className="card quiz-card muted">
@@ -135,6 +147,22 @@ export function QuizResult({ question, details, result }: { question: string; de
 			{result.explanation && (
 				<div className="explanation">
 					<Markdown text={result.explanation} />
+				</div>
+			)}
+			{onNext && (
+				<div className="card-actions">
+					<button
+						type="button"
+						className="primary"
+						autoFocus
+						disabled={sent}
+						onClick={() => {
+							setSent(true);
+							onNext();
+						}}
+					>
+						Next question →
+					</button>
 				</div>
 			)}
 		</div>

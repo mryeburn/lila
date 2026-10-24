@@ -32,7 +32,15 @@ export type PendingInteraction =
 			details?: string;
 			mode: "text" | "single-select" | "multi-select";
 			options: DisplayOption[];
+	  }
+	| {
+			/** A graded quiz, shown until the learner clicks "Next question". */
+			kind: "graded";
+			id: string;
+			result: QuizResultDetails;
 	  };
+
+export type QuizResultDetails = Record<string, unknown>;
 
 export interface QuizAnswer {
 	/** Set when the learner typed a message instead of answering. */
@@ -252,7 +260,7 @@ export function createQuizTool(broker: InteractionBroker): ToolDefinition<typeof
 			if (note) text += `\nUser's note: ${note}`;
 			if (explanation) text += `\nExplanation: ${explanation}`;
 
-			return textResult(text, {
+			const result = {
 				status: "answered",
 				question,
 				context: details,
@@ -264,7 +272,11 @@ export function createQuizTool(broker: InteractionBroker): ToolDefinition<typeof
 				dontKnow,
 				note,
 				explanation,
-			});
+			};
+			// Let the learner read the feedback; the lesson goes on when they click
+			// "Next question" (or type a message).
+			await broker.request({ kind: "graded", id: toolCallId, result }, signal);
+			return textResult(text, result);
 		},
 	};
 }
