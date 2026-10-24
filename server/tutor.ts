@@ -52,14 +52,16 @@ type Thinking = (typeof THINKING_LEVELS)[number];
 /**
  * True when the message before `at` is the learner asking something: a question
  * typed instead of a quiz answer or before one, a follow-up typed right after a
- * quiz answer, or any message with a question mark.
+ * quiz answer, or any message with a question mark. With onlySure, only the
+ * first two (and questions from a Questions box), never a guess from a "?".
  */
-function learnerAsked(messages: any[], at: number): boolean {
+function learnerAsked(messages: any[], at: number, onlySure = false): boolean {
 	const prev = messages[at - 1];
 	if (prev?.role === "toolResult") return prev.details?.status === "paused" || !!prev.details?.skippedWith;
 	if (prev?.role !== "user") return false;
 	const raw = textOf(prev.content);
 	if (raw.includes(ANSWER_NOTE.trim())) return true;
+	if (onlySure) return false;
 	const text = raw.replace(APP_NOTE, "").trim();
 	if (!text || text === CONTINUE_TEXT || parseMessage(text)) return false;
 	const before = messages[at - 2];
@@ -231,21 +233,35 @@ export class Tutor implements InteractionBroker {
 		return this.learnerSpoke;
 	}
 
-	async beforeQuiz(toolCallId: string, signal: AbortSignal | undefined): Promise<string | undefined> {
+	/** The tutor's text just before a card, and whether it's the first thing in its reply. */
+	private textBefore(toolCallId: string): { messages: any[]; at: number; text: string; firstPart: boolean } {
 		const messages = (this.session?.messages ?? []) as any[];
 		const at = messages.findIndex(
 			(m) => m.role === "assistant" && (m.content ?? []).some((b: any) => b.type === "toolCall" && b.id === toolCallId),
 		);
-		const msg = messages[at];
 		let text = "";
 		let firstPart = true;
-		for (const block of msg?.content ?? []) {
+		for (const block of messages[at]?.content ?? []) {
 			if (block.type === "text") text += block.text;
 			if (block.type !== "toolCall") continue;
 			if (block.id === toolCallId) break;
 			if (TOOL_NAMES.includes(block.name)) text = "";
 			firstPart = false;
 		}
+		return { messages, at, text, firstPart };
+	}
+
+	/**
+	 * The learner asked something and the tutor's reply opens with a card and no
+	 * answer. Sent back once: the next reply follows this refusal, not the question.
+	 */
+	skippedQuestion(toolCallId: string): boolean {
+		const { messages, at, text, firstPart } = this.textBefore(toolCallId);
+		return at > 0 && firstPart && text.trim().length < 20 && learnerAsked(messages, at, true);
+	}
+
+	async beforeQuiz(toolCallId: string, signal: AbortSignal | undefined): Promise<string | undefined> {
+		const { messages, at, text, firstPart } = this.textBefore(toolCallId);
 		if (text.trim().length < MIN_SECTION_LENGTH) return undefined;
 		// The text is the tutor's answer to something the learner just asked,
 		// not a new section; they've had their say, so go straight to the quiz.

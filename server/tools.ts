@@ -73,8 +73,12 @@ export interface InteractionBroker {
 	 * tutor queued before that are held back, so it can answer first.
 	 */
 	learnerWaiting?(): boolean;
+	/** True when the learner just asked something and the tutor went straight to this card without answering. */
+	skippedQuestion?(toolCallId: string): boolean;
 }
 
+const UNANSWERED =
+	"Not shown: the learner asked a question and you haven't answered it. Write a clear, full answer to their question in your message first, then ask this again.";
 const HELD =
 	"Not shown: the learner wrote something before this came up. Respond to what they wrote first, then ask this again if it still fits.";
 
@@ -171,6 +175,7 @@ export function createQuizTool(broker: InteractionBroker): ToolDefinition<typeof
 			const correctIndices = options.filter((o) => choices[o.index - 1].correct).map((o) => o.index);
 
 			if (broker.learnerWaiting?.()) return textResult(HELD, { status: "held", question });
+			if (broker.skippedQuestion?.(toolCallId)) return textResult(UNANSWERED, { status: "unanswered", question });
 			const asked = await broker.beforeQuiz?.(toolCallId, signal);
 			if (asked) {
 				const message = `The learner had a question about the section you just taught, so this quiz question wasn't shown yet. They asked: ${asked}\nAnswer them first, then ask this quiz question again.`;
@@ -262,6 +267,7 @@ export function createAskTool(broker: InteractionBroker): ToolDefinition<typeof 
 			const options: DisplayOption[] = labels.map((label, i) => ({ index: i + 1, label }));
 
 			if (broker.learnerWaiting?.()) return textResult(HELD, { status: "held", question, mode });
+			if (broker.skippedQuestion?.(toolCallId)) return textResult(UNANSWERED, { status: "unanswered", question, mode });
 			const answer = await broker.request<AskAnswer>(
 				{ kind: "ask", id: toolCallId, question, details, mode, options },
 				signal,
