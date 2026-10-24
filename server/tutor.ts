@@ -58,7 +58,9 @@ function learnerAsked(messages: any[], at: number): boolean {
 	const prev = messages[at - 1];
 	if (prev?.role === "toolResult") return prev.details?.status === "paused" || !!prev.details?.skippedWith;
 	if (prev?.role !== "user") return false;
-	const text = textOf(prev.content).replace(APP_NOTE, "").trim();
+	const raw = textOf(prev.content);
+	if (raw.includes(ANSWER_NOTE.trim())) return true;
+	const text = raw.replace(APP_NOTE, "").trim();
 	if (!text || text === CONTINUE_TEXT || parseMessage(text)) return false;
 	const before = messages[at - 2];
 	return text.includes("?") || (before?.role === "toolResult" && Array.isArray(before.details?.correctIndices));

@@ -147,7 +147,6 @@ export function App() {
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const [sidebarOpen, setSidebarOpen] = useState(false);
 	const scrollRef = useRef<HTMLDivElement>(null);
-	const stick = useRef(true);
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 	/** Set when the learner pressed "Check for updates", so the answer is shown even when there's nothing new. */
 	const checkedByHand = useRef(false);
@@ -178,24 +177,51 @@ export function App() {
 		if (needsSetup) setSettingsOpen(true);
 	}, [state, needsSetup]);
 
-	// Follow new content unless the learner has scrolled up to reread, but
-	// stop once a new tutor reply reaches the top of the screen, so a long
-	// reply is read from its beginning. "More below" then takes them down.
+	// Where the learner is on the page. The page never moves up by itself.
+	// After the learner does something (answers, asks, clicks on), it follows
+	// what the tutor adds, but only until the start of that new part reaches
+	// the top of the screen. Scrolling up to reread stops the following until
+	// they next do something. "More below" takes them down a screen at a time.
 	const [moreBelow, setMoreBelow] = useState(false);
 	const checkMoreBelow = (el: HTMLElement) => setMoreBelow(el.scrollHeight - el.scrollTop - el.clientHeight > 80);
+	/** The scroll position the learner should be at; restored if the page briefly gets shorter. */
+	const place = useRef(0);
+	/** True from the learner's last action until they scroll up. */
+	const following = useRef(true);
+	/** Set once the learner has done something; until then (a lesson just opened) follow to the very end. */
+	const acted = useRef(false);
+	const markInput = () => {
+		following.current = true;
+		acted.current = true;
+		// Tag what's on the page now, so what the tutor adds next can be told apart.
+		for (const child of scrollRef.current?.firstElementChild?.children ?? []) child.setAttribute("data-seen", "");
+	};
+	const scrollTo = (el: HTMLElement, top: number) => {
+		place.current = top;
+		if (Math.abs(el.scrollTop - top) > 1) el.scrollTop = top;
+	};
+	// A different lesson: start at its end.
+	useLayoutEffect(() => {
+		place.current = 0;
+		following.current = true;
+		acted.current = false;
+	}, [state?.lessonPath]);
 	useLayoutEffect(() => {
 		const el = scrollRef.current;
 		if (!el) return;
-		if (stick.current) {
-			let target = el.scrollHeight - el.clientHeight;
-			const replies = el.querySelectorAll<HTMLElement>(".msg.tutor");
-			const reply = replies[replies.length - 1];
-			if (reply) {
-				const top = reply.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - 16;
-				if (top >= el.scrollTop - 4) target = Math.min(target, top);
-			}
-			if (target > el.scrollTop) el.scrollTop = target;
+		// When a card shrinks (say, its question box closes) keep the page tall
+		// enough that the browser doesn't move the learner up.
+		const content = el.firstElementChild as HTMLElement | null;
+		if (content) content.style.minHeight = place.current > 0 ? `${place.current + el.clientHeight}px` : "";
+		const max = el.scrollHeight - el.clientHeight;
+		let target = place.current;
+		if (following.current) {
+			let limit = max;
+			const added = acted.current ? content?.querySelector<HTMLElement>(":scope > :not([data-seen])") : null;
+			if (added) limit = added.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - 16;
+			target = Math.max(target, Math.min(max, limit));
 		}
+		scrollTo(el, Math.max(0, Math.min(max, target)));
 		checkMoreBelow(el);
 	}, [items, streaming, store.interactions]);
 
@@ -213,7 +239,7 @@ export function App() {
 		}
 		send({ type: "prompt", text, question });
 		setDraft("");
-		stick.current = true;
+		markInput();
 	};
 
 	const last = items.at(-1);
@@ -318,9 +344,22 @@ export function App() {
 				<div
 					className="scroll"
 					ref={scrollRef}
+					onClickCapture={(e) => {
+						if ((e.target as HTMLElement).closest("button")) markInput();
+					}}
+					onKeyDownCapture={(e) => {
+						if (e.key === "Enter") markInput();
+					}}
 					onScroll={(e) => {
 						const el = e.currentTarget;
-						stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+						const max = el.scrollHeight - el.clientHeight;
+						// The page got shorter for a moment and the browser moved it up:
+						// not the learner's doing, so keep their place.
+						const squeezed = el.scrollTop >= max - 1 && el.scrollTop < place.current;
+						if (!squeezed && Math.abs(el.scrollTop - place.current) > 1) {
+							if (el.scrollTop < place.current) following.current = false;
+							place.current = el.scrollTop;
+						}
 						checkMoreBelow(el);
 					}}
 				>
