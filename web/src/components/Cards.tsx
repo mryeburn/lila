@@ -171,8 +171,8 @@ export function QuizResult({
 			{pictures}
 			{onNext && (
 				<QuestionsBox
-					text="If you have a question about this question or its answer, type it in here. Otherwise, continue the lesson."
-					continueLabel="Continue →"
+					text="If you have a question about this question or its answer, type it in here. Otherwise, continue the quiz."
+					continueLabel="Continue the quiz →"
 					onContinue={onNext}
 					onAsk={onAsk}
 				/>

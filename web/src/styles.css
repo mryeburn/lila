@@ -1208,16 +1208,28 @@ button.option:not(:disabled):hover {
 	margin-top: 12px;
 }
 
-/* A new version is ready: offered at the top of the page. */
-.update-banner {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	gap: 12px;
-	flex-wrap: wrap;
-	background: var(--accent-soft);
+/* A new version is ready: the update button turns green. */
+.update-ready {
+	background: var(--right);
+	color: var(--accent-text);
+	border: none;
+	border-radius: 10px;
+	padding: 10px 14px;
+	font-weight: 700;
+	box-shadow: 0 0 0 3px var(--right-soft);
 }
-.sidebar .secondary.wide + .secondary.wide {
+.update-ready:hover {
+	filter: brightness(1.08);
+}
+.sidebar .secondary.wide.update-current {
+	opacity: 1;
+	color: var(--right);
+	font-weight: 600;
+}
+.sidebar .secondary.wide.update-running {
+	white-space: normal;
+}
+.sidebar .wide + .secondary.wide {
 	margin-top: 8px;
 }
 .picture-log {

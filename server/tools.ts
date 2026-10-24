@@ -68,7 +68,15 @@ export interface InteractionBroker {
 	 * had a question about the section just taught, else undefined.
 	 */
 	beforeQuiz?(toolCallId: string, signal: AbortSignal | undefined): Promise<string | undefined>;
+	/**
+	 * True when the learner wrote something the tutor hasn't read yet. Cards the
+	 * tutor queued before that are held back, so it can answer first.
+	 */
+	learnerWaiting?(): boolean;
 }
+
+const HELD =
+	"Not shown: the learner wrote something before this came up. Respond to what they wrote first, then ask this again if it still fits.";
 
 /** Tool names, as the tutor sees them. */
 export const QUIZ_TOOL = "quiz_question";
@@ -162,6 +170,7 @@ export function createQuizTool(broker: InteractionBroker): ToolDefinition<typeof
 			const options: DisplayOption[] = choices.map((c, i) => ({ index: i + 1, label: c.text }));
 			const correctIndices = options.filter((o) => choices[o.index - 1].correct).map((o) => o.index);
 
+			if (broker.learnerWaiting?.()) return textResult(HELD, { status: "held", question });
 			const asked = await broker.beforeQuiz?.(toolCallId, signal);
 			if (asked) {
 				const message = `The learner had a question about the section you just taught, so this quiz question wasn't shown yet. They asked: ${asked}\nAnswer them first, then ask this quiz question again.`;
@@ -252,6 +261,7 @@ export function createAskTool(broker: InteractionBroker): ToolDefinition<typeof 
 			const mode = labels.length === 0 ? "text" : isTrue(params.pick_several) ? "multi-select" : "single-select";
 			const options: DisplayOption[] = labels.map((label, i) => ({ index: i + 1, label }));
 
+			if (broker.learnerWaiting?.()) return textResult(HELD, { status: "held", question, mode });
 			const answer = await broker.request<AskAnswer>(
 				{ kind: "ask", id: toolCallId, question, details, mode, options },
 				signal,
