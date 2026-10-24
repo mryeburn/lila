@@ -162,10 +162,14 @@ export function App() {
 	const needsSetup = state !== null && !state.model;
 	const waitingOnCard = Object.values(store.interactions).some((i) => i.kind !== "graded");
 
-	// First visit with no AI connected: open settings straight away.
+	// First visit with no AI connected: open settings straight away. Only once
+	// per visit, so starting a new lesson never brings it up again.
+	const offeredSetup = useRef(false);
 	useEffect(() => {
+		if (state === null || offeredSetup.current) return;
+		offeredSetup.current = true;
 		if (needsSetup) setSettingsOpen(true);
-	}, [needsSetup]);
+	}, [state, needsSetup]);
 
 	// Follow new content unless the learner has scrolled up to reread.
 	useLayoutEffect(() => {
