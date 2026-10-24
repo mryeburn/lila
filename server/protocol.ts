@@ -2,13 +2,17 @@
 // Shared by both sides, so keep it free of Node-only imports.
 
 import type { PendingInteraction } from "./tools.ts";
+import type { UpdateStatus } from "./update.ts";
 
 export type { DisplayOption, PendingInteraction, QuizAnswer, AskAnswer } from "./tools.ts";
+export type { UpdateStatus } from "./update.ts";
 
 export type TranscriptItem =
 	| { kind: "user"; text: string }
 	| { kind: "assistant"; text: string }
 	| { kind: "error"; text: string }
+	/** The learner's own learning material (a file or web page), shown compactly. */
+	| { kind: "resource"; name: string; source: string; chars: number; truncated: boolean }
 	| {
 			kind: "quiz" | "ask";
 			id: string;
@@ -60,7 +64,12 @@ export type LoginEvent =
 	| { type: "progress"; message: string };
 
 export type ServerMessage =
+	/** First message on every connection; a new version means the page should reload. */
+	| { type: "hello"; version: string }
 	| { type: "state"; state: TutorState }
+	| { type: "update"; status: UpdateStatus }
+	/** A learning resource finished loading (or failed). */
+	| { type: "resource_done"; ok: boolean; error?: string }
 	| { type: "transcript"; items: TranscriptItem[] }
 	| { type: "streaming"; text: string | null }
 	| { type: "interaction"; interaction: PendingInteraction }
@@ -86,4 +95,8 @@ export type ClientMessage =
 	| { type: "login_start"; provider: string; method: "api_key" | "oauth" }
 	| { type: "login_reply"; id: string; value: string }
 	| { type: "login_cancel" }
-	| { type: "logout"; provider: string };
+	| { type: "logout"; provider: string }
+	| { type: "add_file"; name: string; data: string }
+	| { type: "add_link"; url: string }
+	| { type: "check_update" }
+	| { type: "start_update" };

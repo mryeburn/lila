@@ -6,8 +6,10 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
 import { DATA_DIR, ensureDirs, ensureTeachSkill } from "./config.ts";
+import { type Material, MaterialError, readFile, readLink } from "./materials.ts";
 import type { ClientMessage, LoginPrompt, ModelInfo, ProviderInfo, ServerMessage } from "./protocol.ts";
 import { Tutor } from "./tutor.ts";
+import { APP_VERSION, checkForUpdate, initialStatus, startUpdate, type UpdateStatus } from "./update.ts";
 
 const PORT = Number(process.env.PORT || 4747);
 // Local only by default: the app can spend your AI credits, so it shouldn't be
@@ -94,6 +96,25 @@ async function startLogin(ws: WebSocket, provider: string, method: "api_key" | "
 	}
 }
 
+// ── Learning resources and updates ──────────────────────────────────────────
+
+async function addResource(ws: WebSocket, load: () => Promise<Material>) {
+	try {
+		const material = await load();
+		sendTo(ws, { type: "resource_done", ok: true });
+		await tutor.addMaterial(material);
+	} catch (err) {
+		const message = err instanceof MaterialError ? err.message : `That couldn't be read: ${(err as Error).message}`;
+		sendTo(ws, { type: "resource_done", ok: false, error: message });
+	}
+}
+
+let updateStatus: UpdateStatus = initialStatus();
+function setUpdate(status: UpdateStatus) {
+	updateStatus = status;
+	broadcast({ type: "update", status });
+}
+
 // ── Messages from the page ───────────────────────────────────────────────────
 
 async function handle(ws: WebSocket, msg: ClientMessage) {
@@ -137,6 +158,25 @@ async function handle(ws: WebSocket, msg: ClientMessage) {
 			break;
 		case "login_cancel":
 			login?.abort.abort();
+			break;
+		case "add_file":
+			void addResource(ws, () => readFile(msg.name, Buffer.from(msg.data, "base64")));
+			break;
+		case "add_link":
+			void addResource(ws, () => readLink(msg.url));
+			break;
+		case "check_update":
+			if (updateStatus.state === "updating") break;
+			setUpdate({ ...updateStatus, state: "checking", error: undefined });
+			setUpdate(await checkForUpdate());
+			break;
+		case "start_update":
+			try {
+				startUpdate();
+				setUpdate({ ...updateStatus, state: "updating" });
+			} catch (err) {
+				setUpdate({ ...updateStatus, state: "error", error: (err as Error).message });
+			}
 			break;
 		case "logout":
 			await runtime.logout(msg.provider);
@@ -197,6 +237,8 @@ wss.on("connection", (ws, req) => {
 		}
 		handle(ws, msg).catch((err) => sendTo(ws, { type: "error", message: (err as Error).message }));
 	});
+	sendTo(ws, { type: "hello", version: APP_VERSION });
+	sendTo(ws, { type: "update", status: updateStatus });
 	void tutor.sendSnapshot((m) => sendTo(ws, m));
 });
 

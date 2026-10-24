@@ -10,6 +10,7 @@ import type {
 	ServerMessage,
 	TranscriptItem,
 	TutorState,
+	UpdateStatus,
 } from "../../server/protocol.ts";
 
 export interface LoginFlow {
@@ -29,6 +30,9 @@ export interface TutorStore {
 	models: ModelInfo[];
 	login: LoginFlow | null;
 	toast: string | null;
+	update: UpdateStatus | null;
+	/** True while a file or link is being read. */
+	addingResource: boolean;
 	send: (msg: ClientMessage) => void;
 	resetLogin: () => void;
 	clearToast: () => void;
@@ -56,6 +60,9 @@ export function useTutor(): TutorStore {
 	const [models, setModels] = useState<ModelInfo[]>([]);
 	const [login, setLogin] = useState<LoginFlow | null>(null);
 	const [toast, setToast] = useState<string | null>(null);
+	const [update, setUpdate] = useState<UpdateStatus | null>(null);
+	const [addingResource, setAddingResource] = useState(false);
+	const versionRef = useRef<string | null>(null);
 
 	useEffect(() => {
 		let closed = false;
@@ -72,11 +79,24 @@ export function useTutor(): TutorStore {
 			ws.onclose = () => {
 				setConnected(false);
 				setInteractions({});
+				setAddingResource(false);
 				if (!closed) retry = setTimeout(connect, 1500);
 			};
 			ws.onmessage = (ev) => {
 				const msg = JSON.parse(ev.data) as ServerMessage;
 				switch (msg.type) {
+					case "hello":
+						// Pi Learn was updated while this page was open: load the new page.
+						if (versionRef.current && versionRef.current !== msg.version) location.reload();
+						versionRef.current = msg.version;
+						break;
+					case "update":
+						setUpdate(msg.status);
+						break;
+					case "resource_done":
+						setAddingResource(false);
+						if (!msg.ok) setToast(msg.error ?? "That couldn't be added.");
+						break;
 					case "state":
 						setState(msg.state);
 						break;
@@ -134,6 +154,7 @@ export function useTutor(): TutorStore {
 		const ws = wsRef.current;
 		if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
 		if (msg.type === "login_start") setLogin({ events: [] });
+		if (msg.type === "add_file" || msg.type === "add_link") setAddingResource(true);
 		if (msg.type === "login_reply") setLogin((cur) => (cur ? { ...cur, prompt: undefined } : cur));
 	}, []);
 
@@ -148,6 +169,8 @@ export function useTutor(): TutorStore {
 		models,
 		login,
 		toast,
+		update,
+		addingResource,
 		send,
 		resetLogin: useCallback(() => setLogin(null), []),
 		clearToast: useCallback(() => setToast(null), []),

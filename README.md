@@ -7,6 +7,8 @@ The original runs inside the [pi](https://github.com/earendil-works/pi) coding a
 - **Lessons that read well.** Math renders as proper LaTeX, and diagrams appear inline. No Obsidian needed.
 - **Clickable quizzes.** Graded questions show up as cards with instant ✓/✗ feedback, the right answer, and an explanation. There's always an "I don't know" button and an optional note for your tutor.
 - **Clickable questions.** When the tutor asks what you want, you tap an option or type your own.
+- **Learn from your own materials.** Use the 📎 button to add PDFs, Word documents, text files or web links. The tutor asks whether to teach only from them or from them plus what it knows.
+- **Time to ask questions.** After each quiz answer the lesson waits for you to click **Next question**, and the tutor checks for questions before each new section.
 - **All your lessons saved.** Pick up any past lesson from the sidebar, or download it as a Markdown file.
 - **Any AI provider.** Sign in with a Claude Pro/Max or ChatGPT plan, or paste an API key (Anthropic, OpenAI, Google Gemini, OpenRouter and 30+ others).
 
@@ -47,6 +49,8 @@ The same command works on other Linux computers (Debian or Ubuntu based).
 ### First start
 
 Pi Learn opens in your browser at <http://127.0.0.1:4747>, and Settings opens automatically the first time. Connect an AI provider, pick a model, close Settings, and type what you want to learn.
+
+To update to the newest version, open **Settings** and click **Update now** when an update is available (or run the install command again).
 
 Pi Learn keeps running quietly in the background after you close the browser tab, so the icon opens it instantly next time. Restarting the computer stops it.
 

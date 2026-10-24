@@ -15,7 +15,6 @@ set -euo pipefail
 {
 
 REPO="mryeburn/pi-learn-userfriendlyinterface"
-TARBALL_URL="${PI_LEARN_TARBALL:-https://github.com/$REPO/archive/refs/heads/main.tar.gz}"
 NODE_DIST="https://nodejs.org/dist/latest-v22.x"
 APP_DIR="$HOME/pi-learn"
 DATA_DIR="$HOME/.pi-learn-web"
@@ -81,6 +80,10 @@ echo "Using Node.js $(node -v)"
 
 # ── 3. The app ────────────────────────────────────────────────────────────────
 say "Downloading Pi Learn"
+# Pin the exact version, so the app knows what it's running when checking for updates.
+SHA="$(curl -fsSL "https://github.com/$REPO.git/info/refs?service=git-upload-pack" 2>/dev/null | grep -aoE '[0-9a-f]{40} refs/heads/main' | head -n1 | cut -c1-40 || true)"
+if [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]; then REF="$SHA"; else SHA=""; REF="refs/heads/main"; fi
+TARBALL_URL="${PI_LEARN_TARBALL:-https://github.com/$REPO/archive/$REF.tar.gz}"
 curl -fsSL "$TARBALL_URL" -o "$TMP/app.tar.gz" ||
 	fail "Couldn't download Pi Learn from GitHub. If the repository is private, it has to be made public first."
 mkdir -p "$TMP/app"
@@ -95,6 +98,7 @@ pkill -f "tsx server/index.ts" 2>/dev/null || true
 if [ -d "$APP_DIR/node_modules" ]; then mv "$APP_DIR/node_modules" "$TMP/app/"; fi
 rm -rf "$APP_DIR"
 mv "$TMP/app" "$APP_DIR"
+if [ -n "$SHA" ]; then printf '{"repo":"%s","sha":"%s"}\n' "$REPO" "$SHA" >"$APP_DIR/.version"; fi
 
 say "Installing Pi Learn's components (this takes a few minutes the first time)"
 cd "$APP_DIR"
@@ -126,6 +130,7 @@ if ! curl -s -o /dev/null "\$URL"; then
 	PI_LEARN_NO_OPEN=1 $DETACH node node_modules/tsx/dist/cli.mjs server/index.ts >>"\$LOG" 2>&1 </dev/null &
 	for i in \$(seq 1 60); do curl -s -o /dev/null "\$URL" && break; sleep 1; done
 fi
+[ -n "\${PI_LEARN_NO_BROWSER:-}" ] && exit 0
 $OPEN_CMD
 EOF
 chmod +x "$APP_DIR/launch.sh"
@@ -178,6 +183,9 @@ EOF
 	DONE_MSG='Open the launcher, go into the "Linux apps" folder and click "Pi Learn".
   (Right-click it and choose "Pin to shelf" to keep it handy.)'
 fi
+
+# Updating from inside the app: start the new version; the open page reloads itself.
+if [ -n "${PI_LEARN_RESTART:-}" ]; then PI_LEARN_NO_BROWSER=1 "$APP_DIR/launch.sh"; fi
 
 say "Done!"
 cat <<EOF

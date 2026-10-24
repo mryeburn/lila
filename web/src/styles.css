@@ -704,6 +704,126 @@ button.option:not(:disabled):hover {
 	border-radius: 14px;
 }
 
+/* ── Learning resources ──────────────────────────────────────────────────── */
+
+.add-resource {
+	position: relative;
+	display: flex;
+	align-items: center;
+	align-self: flex-end;
+}
+.composer .icon-button.attach {
+	height: 48px;
+	width: 44px;
+	padding: 0;
+	font-size: 22px;
+	border-radius: 14px;
+}
+.attach-status {
+	position: absolute;
+	bottom: -16px;
+	left: 0;
+	font-size: 12px;
+	color: var(--muted);
+	white-space: nowrap;
+}
+.spinner {
+	display: inline-block;
+	width: 18px;
+	height: 18px;
+	border: 2.5px solid var(--border);
+	border-top-color: var(--accent);
+	border-radius: 50%;
+	animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+.resource-popover {
+	position: absolute;
+	bottom: 56px;
+	left: 0;
+	z-index: 20;
+	width: min(360px, calc(100vw - 40px));
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 14px;
+	box-shadow: 0 8px 30px rgb(0 0 0 / 0.15);
+	padding: 16px;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+.resource-popover h4 {
+	margin: 0;
+	font-size: 15px;
+}
+.composer .resource-popover button {
+	height: 40px;
+	border-radius: 10px;
+}
+.resource-popover .or {
+	font-size: 13px;
+	color: var(--muted);
+	text-align: center;
+}
+.link-row {
+	display: flex;
+	gap: 8px;
+}
+.link-row input {
+	flex: 1;
+	min-width: 0;
+	font: inherit;
+	color: var(--text);
+	background: var(--surface);
+	border: 1.5px solid var(--border);
+	border-radius: 10px;
+	padding: 0 10px;
+	height: 40px;
+}
+.muted-text.small {
+	font-size: 12.5px;
+	margin: 0;
+}
+.resource-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	max-width: 100%;
+	background: var(--accent-soft);
+	border-radius: 12px;
+	padding: 8px 12px;
+	font-size: 14.5px;
+}
+.resource-name {
+	font-weight: 600;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.resource-size {
+	color: var(--muted);
+	white-space: nowrap;
+	font-size: 13px;
+}
+.next-hint {
+	margin: 12px 0 0;
+	font-size: 14px;
+	color: var(--muted);
+}
+
+/* ── Updates (Settings) ──────────────────────────────────────────────────── */
+
+.update-row {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	flex-wrap: wrap;
+}
+
 /* ── Settings modal ──────────────────────────────────────────────────────── */
 
 .modal-backdrop {

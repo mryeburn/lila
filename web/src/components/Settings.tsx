@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ProviderInfo } from "../../../server/protocol.ts";
 import type { TutorStore } from "../useTutor.ts";
 
@@ -232,6 +232,8 @@ export function Settings({ store, onClose }: { store: TutorStore; onClose: () =>
 					)}
 				</section>
 
+				<UpdateSection store={store} />
+
 				{state && state.thinkingLevels.length > 0 && (
 					<section>
 						<h3>3. Thinking effort</h3>
@@ -252,5 +254,57 @@ export function Settings({ store, onClose }: { store: TutorStore; onClose: () =>
 				)}
 			</div>
 		</div>
+	);
+}
+
+function UpdateSection({ store }: { store: TutorStore }) {
+	const { update, send } = store;
+	const supported = update?.supported === true;
+	// Check once each time Settings opens.
+	useEffect(() => {
+		if (supported) send({ type: "check_update" });
+	}, [supported, send]);
+	if (!update?.supported) return null;
+	const { state } = update;
+	return (
+		<section>
+			<h3>Updates</h3>
+			{state === "updating" ? (
+				<p className="muted-text">
+					Updating Pi Learn. This takes a minute or two. The page will reload by itself when the new version is ready.
+				</p>
+			) : (
+				<div className="update-row">
+					{state === "available" ? (
+						<>
+							<span>A new version of Pi Learn is available.</span>
+							<button type="button" className="primary small" onClick={() => send({ type: "start_update" })}>
+								Update now
+							</button>
+						</>
+					) : (
+						<>
+							<span className="muted-text">
+								{state === "current"
+									? "You have the latest version."
+									: state === "error"
+										? update.error
+										: state === "checking"
+											? "Checking…"
+											: "Get the newest improvements to Pi Learn."}
+							</span>
+							<button
+								type="button"
+								className="secondary small"
+								disabled={state === "checking"}
+								onClick={() => send({ type: "check_update" })}
+							>
+								Check for updates
+							</button>
+						</>
+					)}
+				</div>
+			)}
+		</section>
 	);
 }

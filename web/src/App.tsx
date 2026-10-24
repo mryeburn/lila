@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { TranscriptItem } from "../../server/protocol.ts";
+import { AddResource } from "./components/AddResource.tsx";
 import { AskCard, AskResult, QuizCard, QuizResult } from "./components/Cards.tsx";
 import { Markdown } from "./components/Markdown.tsx";
 import { Settings } from "./components/Settings.tsx";
@@ -28,6 +29,18 @@ function Item({ item, store }: { item: TranscriptItem; store: TutorStore }) {
 			);
 		case "error":
 			return <div className="msg error-msg">Something went wrong: {item.text}</div>;
+		case "resource":
+			return (
+				<div className="msg user">
+					<div className="resource-chip" title={item.truncated ? "Very long, so only the first part was used" : undefined}>
+						<span className="resource-icon">{item.source === "link" ? "🔗" : "📄"}</span>
+						<span className="resource-name">{item.name}</span>
+						<span className="resource-size">
+							{Math.max(1, Math.round(item.chars / 6 / 100) * 100).toLocaleString()} words{item.truncated ? ", shortened" : ""}
+						</span>
+					</div>
+				</div>
+			);
 		case "quiz":
 		case "ask": {
 			const pending = store.interactions[item.id];
@@ -220,6 +233,7 @@ export function App() {
 						submit();
 					}}
 				>
+					<AddResource store={store} />
 					<textarea
 						ref={inputRef}
 						value={draft}
