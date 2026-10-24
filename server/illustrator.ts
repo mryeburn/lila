@@ -3,13 +3,26 @@
 // asks the same AI, in separate small requests whose only job is the picture,
 // for one image for a stretch of the lesson, and shows it under that part.
 //
-// Real images come first: the AI names the Wikipedia article and search words
-// most likely to find a good one, the app searches the libraries, and the AI
-// picks the best candidate. Only when none fits does it draw a diagram or chart.
+// Real images come first. When a lesson starts, the app gathers a library of
+// real images for its topic: the pictures in the main Wikipedia article and in
+// a few related ones, plus Wikimedia Commons and Open-i search results. For
+// each picture the app also runs one search aimed at that part of the lesson,
+// and the AI picks from both. Only when nothing relates does it draw a diagram
+// or chart, and never twice in a row while real images remain. Every step is
+// written to the picture log (server/picturelog.ts).
 
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { Api, Context, ImageContent, Model, TextContent } from "@earendil-works/pi-ai";
-import { type Candidate, fetchThumb, KINDS, searchImages } from "./images.ts";
+import {
+	type Candidate,
+	fetchThumb,
+	KINDS,
+	searchCommons,
+	searchImages,
+	searchOpenI,
+	searchWikipedia,
+} from "./images.ts";
+import { logPicture } from "./picturelog.ts";
 
 export interface IllustrateRequest {
 	/** The lesson's title, for context. */
@@ -24,6 +37,56 @@ export interface IllustrateRequest {
 	shown?: string[];
 	/** Set when the previous diagram couldn't be drawn. */
 	retryAfterBroken?: boolean;
+	/** Real images gathered for this lesson's topic. */
+	library?: Candidate[];
+	/** Image addresses already used in this lesson, so each appears once. */
+	used?: string[];
+	/** The lesson's last picture was drawn, so a real image is strongly preferred. */
+	lastWasDrawing?: boolean;
+	/** Names this picture in the log. */
+	label?: string;
+}
+
+const GATHER = `You collect real teaching images for a lesson in a medical learning app. Learners are doctors and medical students.
+
+Name the English Wikipedia articles most likely to contain good teaching images for this lesson: the main article for the topic first, then 3 to 5 closely related ones (anatomy, physiology, investigations, signs, treatments). For glaucoma, for example: Glaucoma, Optic disc, Aqueous humour, Gonioscopy, Visual field test, Trabecular meshwork. Then give 2 to 4 short Wikimedia Commons search phrases for images the articles may lack (clinical photos, scans, histology).
+
+Reply with only these lines:
+ARTICLE: <exact article title>
+SEARCH: <search words>`;
+
+/** Gathers real images for a lesson's topic. Never throws; may return none. */
+export async function buildLibrary(
+	runtime: ModelRuntime,
+	model: Model<Api>,
+	topic: string,
+	start: string,
+	signal?: AbortSignal,
+): Promise<Candidate[]> {
+	try {
+		const reply = await ask(runtime, model, GATHER, `Lesson topic: ${topic}\n\nHow the lesson began:\n${start.slice(0, 4000)}`, signal);
+		const lines = (name: string) =>
+			[...reply.matchAll(new RegExp(`^\\s*${name}:\\s*(.+?)\\s*$`, "gim"))].map((m) => m[1].replace(/^"|"$/g, ""));
+		const articles = lines("ARTICLE").slice(0, 6);
+		const searches = lines("SEARCH").slice(0, 4);
+		if (articles.length === 0) articles.push(topic);
+		const found = await Promise.all([
+			...articles.map((a) => searchWikipedia(a, signal, 10).catch(() => [])),
+			...searches.map((q) => searchCommons(q, signal).catch(() => [])),
+			searchOpenI(topic, "", signal).catch(() => []),
+		]);
+		const library: Candidate[] = [];
+		for (const c of found.flat()) {
+			if (library.length < 48 && !library.some((l) => l.url === c.url)) library.push(c);
+		}
+		logPicture(
+			`library for "${topic}": ${library.length} images from articles [${articles.join("; ")}] and searches [${searches.join("; ")}]; per source: ${found.map((f) => f.length).join(", ")}`,
+		);
+		return library;
+	} catch (err) {
+		logPicture(`library for "${topic}" failed: ${(err as Error).message}`);
+		return [];
+	}
 }
 
 const KIND_NAMES = Object.keys(KINDS).join(", ");
@@ -65,20 +128,27 @@ export async function illustrate(
 	req: IllustrateRequest,
 	signal?: AbortSignal,
 ): Promise<IllustrateResult> {
+	const log = (message: string) => logPicture(`${req.label ?? "picture"}: ${message}`);
 	try {
 		// A broken diagram is redrawn rather than searched for again.
 		if (!req.retryAfterBroken) {
 			const plan = parseFind(await ask(runtime, model, FIND, describe(req), signal));
-			if (plan === "none" && !req.required) return {};
-			if (plan && plan !== "none") {
-				const image = await pickImage(runtime, model, req, plan, signal);
-				if (image) return { markdown: image };
+			if (plan === "none" && !req.required) {
+				log("the AI said no picture would help here");
+				return {};
 			}
+			const image = await pickImage(runtime, model, req, plan === "none" ? undefined : plan, log, signal);
+			if (image) return { markdown: image };
 		}
 		const drawing = parseDrawing(await ask(runtime, model, DRAW, `${describe(req)}\n\nDraw it yourself.`, signal));
-		if (drawing) return { markdown: drawing };
+		if (drawing) {
+			log(`drew a ${/^```svg/.test(drawing) ? "picture" : /xychart|pie/.test(drawing) ? "chart" : "diagram"}`);
+			return { markdown: drawing };
+		}
+		log("no picture: the drawing reply couldn't be used");
 		return { error: "The AI didn't make a picture this time." };
 	} catch (err) {
+		log(`failed: ${(err as Error).message}`);
 		return { error: (err as Error).message || "The picture request failed." };
 	}
 }
@@ -132,43 +202,74 @@ async function pickImage(
 	runtime: ModelRuntime,
 	model: Model<Api>,
 	req: IllustrateRequest,
-	find: Find,
+	find: Find | undefined,
+	log: (message: string) => void,
 	signal?: AbortSignal,
 ): Promise<string | undefined> {
-	const options = { article: find.article, limit: 8 };
-	let candidates: Candidate[] = await searchImages(find.search, "any", find.kind, signal, options);
-	if (candidates.length === 0 && find.kind !== "any") {
-		candidates = await searchImages(find.search, "any", "any", signal, options);
+	// One search aimed at this part of the lesson, plus the lesson's library.
+	let aimed: Candidate[] = [];
+	if (find) {
+		const options = { article: find.article, limit: 8 };
+		aimed = await searchImages(find.search, "any", find.kind, signal, options);
+		if (aimed.length === 0 && find.kind !== "any") aimed = await searchImages(find.search, "any", "any", signal, options);
 	}
-	candidates = candidates.filter((c) => !req.shown?.some((s) => s.includes(c.url)));
-	if (candidates.length === 0) return undefined;
+	const taken = new Set([...(req.used ?? []), ...(req.shown ?? []).flatMap((s) => s.match(/https:\/\/[^\s)"]+/g) ?? [])]);
+	const pool: Candidate[] = [];
+	for (const c of [...aimed, ...(req.library ?? [])]) {
+		if (!taken.has(c.url) && !pool.some((p) => p.url === c.url)) pool.push(c);
+	}
+	const searched = find ? `searched "${find.search}" (article "${find.article}", ${find.kind}): ${aimed.length} found` : "no search";
+	if (pool.length === 0) {
+		log(`${searched}; library ${req.library?.length ?? 0}; nothing unused to choose from`);
+		return undefined;
+	}
+
+	// First narrow the pool down from the descriptions alone, then (when the
+	// AI can see images) look at the shortlist before choosing.
+	const leniency = req.lastWasDrawing
+		? "The last picture in this lesson was a drawing, so pick a real image unless none of them is about this topic at all."
+		: "It doesn't have to show exactly the same detail as the text, as long as it is accurate and helps the learner picture this part of the topic.";
+	const list = pool.map((c, i) => `${i + 1}. ${c.title.slice(0, 220)} [${c.credit.slice(0, 60)}]`).join("\n");
+	const shortReply = await ask(
+		runtime,
+		model,
+		"You pick real images for a medical learning app. Real images (photos, scans, professional illustrations) are much better for learners than drawn flowcharts.",
+		`${describe({ ...req, shown: undefined })}\n\nImages available:\n${list}\n\nWhich images would best illustrate this part of the lesson? ${leniency}\nReply with up to 3 numbers, best first, like: 7, 2, 15\nReply 0 only if none of them relates to this part.`,
+		signal,
+	);
+	const shortlist = [...new Set((shortReply.match(/\d+/g) ?? []).map(Number))]
+		.map((n) => pool[n - 1])
+		.filter((c): c is Candidate => !!c)
+		.slice(0, 3);
+	if (shortlist.length === 0) {
+		log(`${searched}; library ${req.library?.length ?? 0}; pool ${pool.length}; the AI found none relevant`);
+		return undefined;
+	}
 
 	const vision = model.input?.includes("image") ?? false;
 	const content: (TextContent | ImageContent)[] = [
 		{
 			type: "text",
-			text: `${describe({ ...req, shown: undefined })}\n\nThese images were found.${
+			text: `${describe({ ...req, shown: undefined })}\n\nThese images were shortlisted.${
 				vision ? " Each is shown after its description." : " You can't see them, so go by the descriptions."
-			} Choose the one that best shows what this part of the lesson is about: it must be accurate and clearly relevant. Prefer clear, labelled, good-quality images.\n\nReply with only: <number> | <short, accurate caption>\nReply 0 if none clearly fits.`,
+			} Choose the one that best illustrates this part of the lesson. ${leniency}\n\nReply with only: <number> | <short, accurate caption that says what to look at>\nReply 0 if none is accurate and relevant.`,
 		},
 	];
-	for (const [i, c] of candidates.entries()) {
+	for (const [i, c] of shortlist.entries()) {
 		content.push({ type: "text", text: `\nImage ${i + 1}: ${c.title}\nSource: ${c.credit}` });
 		if (vision) {
 			const img = await fetchThumb(c.thumb, signal);
 			if (img) content.push({ type: "image", ...img });
 		}
 	}
-	const reply = await ask(
-		runtime,
-		model,
-		"You pick pictures for a medical learning app. Only pick an image that fits; it's fine to reply 0.",
-		content,
-		signal,
-	);
+	const reply = await ask(runtime, model, "You pick real images for a medical learning app.", content, signal);
 	const m = /^\s*(\d+)\s*(?:\|\s*(.+))?$/m.exec(reply);
-	const chosen = m ? candidates[Number(m[1]) - 1] : undefined;
-	if (!chosen) return undefined;
+	const chosen = m ? shortlist[Number(m[1]) - 1] : undefined;
+	if (!chosen) {
+		log(`${searched}; pool ${pool.length}; shortlisted ${shortlist.length} but rejected them after looking`);
+		return undefined;
+	}
+	log(`${searched}; pool ${pool.length}; chose "${chosen.title.slice(0, 80)}" (${chosen.credit.slice(0, 60)})`);
 	const caption = (m?.[2] ?? chosen.title).replace(/[[\]]/g, "").trim().slice(0, 200);
 	return `![${caption}](${chosen.url} "${chosen.credit.replace(/"/g, "'")}")`;
 }

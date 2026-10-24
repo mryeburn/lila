@@ -252,8 +252,55 @@ export function Settings({ store, onClose }: { store: TutorStore; onClose: () =>
 						</div>
 					</section>
 				)}
+
+				<PictureLogSection store={store} />
 			</div>
 		</div>
+	);
+}
+
+/** Lets the learner copy the picture log to share when pictures go wrong. */
+function PictureLogSection({ store }: { store: TutorStore }) {
+	const { pictureLog, send } = store;
+	const [open, setOpen] = useState(false);
+	const [copied, setCopied] = useState(false);
+	return (
+		<section>
+			<h3>Picture log</h3>
+			<p className="muted-text">
+				A record of how Pi Learn chose each picture. If pictures seem wrong or missing, copy it and send it to whoever
+				looks after your Pi Learn.
+			</p>
+			{!open ? (
+				<button
+					type="button"
+					className="secondary small"
+					onClick={() => {
+						setOpen(true);
+						send({ type: "get_picture_log" });
+					}}
+				>
+					Show picture log
+				</button>
+			) : (
+				<>
+					<textarea className="picture-log" readOnly value={pictureLog === null ? "Loading…" : pictureLog || "Nothing logged yet."} rows={8} />
+					<button
+						type="button"
+						className="secondary small"
+						disabled={!pictureLog}
+						onClick={() =>
+							navigator.clipboard.writeText(pictureLog ?? "").then(
+								() => setCopied(true),
+								() => setCopied(false),
+							)
+						}
+					>
+						{copied ? "Copied" : "Copy"}
+					</button>
+				</>
+			)}
+		</section>
 	);
 }
 

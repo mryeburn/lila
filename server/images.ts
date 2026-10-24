@@ -135,7 +135,7 @@ export async function searchImages(
 const NOT_TEACHING = /icon|logo|symbol|flag|portal|disambig|question_book|edit-clear|padlock|wiki|commons-|ambox|stub|red_pog|crystal_clear|nuvola|gnome-|speakerlink|sound/i;
 
 /** Images used in the best-matching English Wikipedia article, with their captions. */
-async function searchWikipedia(query: string, signal?: AbortSignal): Promise<Candidate[]> {
+export async function searchWikipedia(query: string, signal?: AbortSignal, max = 12): Promise<Candidate[]> {
 	const search = new URL("https://en.wikipedia.org/w/api.php");
 	search.search = new URLSearchParams({
 		action: "query",
@@ -153,7 +153,7 @@ async function searchWikipedia(query: string, signal?: AbortSignal): Promise<Can
 	// unavailable, fall back to the plain list of files the article uses.
 	const captions = new Map<string, string>();
 	const keep = (file: unknown, caption: string) => {
-		if (typeof file !== "string" || NOT_TEACHING.test(file) || captions.size >= 12) return;
+		if (typeof file !== "string" || NOT_TEACHING.test(file) || captions.size >= max) return;
 		captions.set(file.replace(/_/g, " "), caption);
 	};
 	try {
@@ -201,7 +201,7 @@ async function getJson(url: string, signal?: AbortSignal): Promise<any> {
 	return res.json();
 }
 
-async function searchCommons(query: string, signal?: AbortSignal): Promise<Candidate[]> {
+export async function searchCommons(query: string, signal?: AbortSignal): Promise<Candidate[]> {
 	return (await commonsImages({ generator: "search", gsrnamespace: "6", gsrsearch: query, gsrlimit: "8" }, signal)).slice(
 		0,
 		MAX_RESULTS,
@@ -247,7 +247,7 @@ async function commonsImages(
 	return out.filter((c) => isAllowedImage(c.url));
 }
 
-async function searchOpenI(query: string, kind: string, signal?: AbortSignal): Promise<Candidate[]> {
+export async function searchOpenI(query: string, kind: string, signal?: AbortSignal): Promise<Candidate[]> {
 	const url = new URL("https://openi.nlm.nih.gov/api/search");
 	url.search = new URLSearchParams({ query, m: "1", n: "8", ...(kind ? { it: kind } : {}) }).toString();
 	const data = await getJson(url.href, signal);

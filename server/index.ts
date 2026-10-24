@@ -9,6 +9,7 @@ import { DATA_DIR, ensureDirs, ensureTeachSkill } from "./config.ts";
 import { type Material, MaterialError, readFile, readLink } from "./materials.ts";
 import type { ClientMessage, LoginPrompt, ModelInfo, ProviderInfo, ServerMessage } from "./protocol.ts";
 import { Tutor } from "./tutor.ts";
+import { readPictureLog } from "./picturelog.ts";
 import { APP_VERSION, checkForUpdate, initialStatus, startUpdate, type UpdateStatus } from "./update.ts";
 
 const PORT = Number(process.env.PORT || 4747);
@@ -115,6 +116,18 @@ function setUpdate(status: UpdateStatus) {
 	broadcast({ type: "update", status });
 }
 
+async function refreshUpdate() {
+	if (!updateStatus.supported || updateStatus.state === "updating") return;
+	setUpdate({ ...updateStatus, state: "checking", error: undefined });
+	setUpdate(await checkForUpdate());
+}
+
+// Check for a new version shortly after starting, then every few hours, so
+// the page can offer it without anyone opening Settings.
+const UPDATE_CHECK_EVERY = 4 * 60 * 60 * 1000;
+setTimeout(() => void refreshUpdate(), 5_000).unref();
+setInterval(() => void refreshUpdate(), UPDATE_CHECK_EVERY).unref();
+
 // ── Messages from the page ───────────────────────────────────────────────────
 
 async function handle(ws: WebSocket, msg: ClientMessage) {
@@ -172,9 +185,10 @@ async function handle(ws: WebSocket, msg: ClientMessage) {
 			tutor.pictureBroken(msg.id, msg.picture);
 			break;
 		case "check_update":
-			if (updateStatus.state === "updating") break;
-			setUpdate({ ...updateStatus, state: "checking", error: undefined });
-			setUpdate(await checkForUpdate());
+			await refreshUpdate();
+			break;
+		case "get_picture_log":
+			sendTo(ws, { type: "picture_log", text: readPictureLog() });
 			break;
 		case "start_update":
 			try {
