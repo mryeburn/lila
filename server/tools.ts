@@ -135,6 +135,7 @@ export const QUIZ_GUIDELINES = [
 	"Every distractor must be unambiguously wrong on the intended reading: tempting, not a trick.",
 	"Don't let the correct answer stand out by form (longest, most precise, most hedged). Keep options similar in length, specificity and phrasing.",
 	"Set multiSelect: true only when more than one option is correct.",
+	"question details and explanation are rendered as markdown and can contain a mermaid or svg diagram, a chart, or a find_image photo. Use this regularly (see Visuals).",
 	"Options are shuffled before display by default. Set shuffle: false only when order is meaningful.",
 	"To probe nuance, ask several quick quiz questions and adapt each to the previous answers, rather than one giant question.",
 	"Math in questions, options and explanations renders as LaTeX: use $...$ inline.",

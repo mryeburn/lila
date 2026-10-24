@@ -47,16 +47,27 @@ Only then start the pre-test. If they added materials, base the pre-test and the
 - When it helps, point to where in the material something comes from (a heading, section or page).
 - If a resource looks cut off, incomplete or garbled, say so instead of guessing what it said.
 
-## Visuals
-Pictures vary the pace and keep the learner engaged. Use them regularly but not in every message: roughly one visual every two to four messages, more for visual subjects (anatomy, imaging, dermatology, physiology curves), fewer for purely verbal ones.
-- Kinds of visuals: mermaid flowcharts, timelines and sequence diagrams; mermaid charts (\`xychart-beta\` for line or bar graphs, \`pie\`); svg drawings for labelled schematics, curves and geometry; markdown tables for comparisons; and real photos or scans from \`find_image\`.
-- Use them in the pre-test too: a quiz question can show a diagram, chart, or image in its \`details\` (for example "What does the arrow in this X-ray point to?"), and an explanation can include a small diagram showing why the answer is right.
-- In teaching, add a visual where it makes an idea click: a process, a comparison, a trend, what something looks like.
-- Every visual must be accurate and earn its place. When a diagram would just repeat the text, skip it.
-
 ## Questions before moving on
 - After each quiz answer, the page itself invites the learner to ask questions before clicking "Next question". If they type a question there, answer it fully, check they're satisfied, then carry on where you left off.
 - Before starting each new section of your plan, ask with \`ask_user_question\` whether they have any questions about the section just finished, with options like "No, let's move on" and "Yes, I have a question" (they can also type their question directly). Answer any questions before moving on.`;
+
+const VISUALS = `# Visuals (required; this overrides anything above that says to draw rarely)
+
+This learner asked for pictures throughout the lesson: they vary the pace and keep attention. Showing no visuals for long stretches is a failure of the lesson.
+
+Required:
+- The plan always includes its mermaid dependency map.
+- Every section you teach includes at least one visual.
+- In the pre-test and practice questions, about every other quiz question or its explanation includes a visual when the topic allows: a diagram, chart or image in the question's \`details\` ("What does the arrow in this X-ray show?") or a small diagram in the \`explanation\` showing why the answer is right.
+- Never go more than two replies in a row without one. The app will remind you if you do.
+
+Kinds of visuals, pick whatever fits:
+- mermaid flowcharts, decision trees, timelines and sequence diagrams (\`\`\`mermaid).
+- mermaid charts: \`xychart-beta\` for line or bar graphs (dose-response, vital signs over time, incidence by age), \`pie\` for proportions.
+- svg drawings (\`\`\`svg) for labelled schematics, anatomy sketches, curves and geometry.
+- real photos, scans and micrographs from \`find_image\` (X-rays, CT, skin findings, instruments, histology). Prefer these for anything where what it really looks like matters.
+
+Every visual must be accurate and support the text; double-check labels. Markdown tables are welcome too but don't count as a visual.`;
 
 /** Builds the appended system prompt: interface notes plus the teach skill. */
 export function buildTeachingPrompt(teachSkillDir: string): string[] {
@@ -65,5 +76,7 @@ export function buildTeachingPrompt(teachSkillDir: string): string[] {
 	const body = raw.replace(/^---\n[\s\S]*?\n---\n/, "").trim();
 	const bullets = (items: string[]) => items.map((g) => `- ${g}`).join("\n");
 	const toolNotes = `# Using the quiz, ask_user_question and find_image tools\n\n## quiz\n${bullets(QUIZ_GUIDELINES)}\n\n## ask_user_question\n${bullets(ASK_GUIDELINES)}\n\n## find_image\n${bullets(IMAGE_GUIDELINES)}`;
-	return [INTERFACE_NOTES, toolNotes, `# The teaching method (always active)\n\n${body}`];
+	// Visuals go last: the method itself says to draw rarely, and the rule that
+	// comes last is the one models weigh most.
+	return [INTERFACE_NOTES, toolNotes, `# The teaching method (always active)\n\n${body}`, VISUALS];
 }
