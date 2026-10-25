@@ -144,7 +144,8 @@ a {
 .brand {
 	display: flex;
 	align-items: center;
-	gap: 10px;
+	/* Small, so the L box and "ILA" read as one word. */
+	gap: 3px;
 	font-weight: 700;
 	font-size: 18px;
 	padding: 4px 4px 8px;
