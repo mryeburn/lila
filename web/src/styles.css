@@ -1379,3 +1379,17 @@ button.option:not(:disabled):hover {
 	padding-left: 22px;
 	line-height: 1.6;
 }
+/* A short YouTube clip the tutor picked. */
+.video-clip {
+	display: block;
+	margin: 12px 0;
+}
+.video-clip iframe {
+	display: block;
+	width: 100%;
+	max-width: 640px;
+	aspect-ratio: 16 / 9;
+	border: 0;
+	border-radius: 10px;
+	background: #000;
+}

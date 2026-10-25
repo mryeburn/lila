@@ -208,6 +208,42 @@ function Photo({ src, alt, title, onBroken }: { src?: string; alt?: string; titl
 	);
 }
 
+/** The stretch of a YouTube video the tutor picked with find_video. */
+export function parseClip(code: string): { id: string; start: number; end: number; title: string; channel: string } | undefined {
+	try {
+		const c = JSON.parse(code);
+		const start = Math.max(0, Math.floor(Number(c.start)));
+		const end = Math.floor(Number(c.end));
+		if (!/^[A-Za-z0-9_-]{11}$/.test(String(c.id)) || !(end > start) || end - start > 120) return undefined;
+		return { id: String(c.id), start, end, title: String(c.title ?? ""), channel: String(c.channel ?? "") };
+	} catch {
+		return undefined;
+	}
+}
+
+const clock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+
+function VideoClip({ code }: { code: string }) {
+	const clip = parseClip(code);
+	if (!clip) return null;
+	// youtube-nocookie plays only from start to end and sets no tracking cookies until played.
+	const src = `https://www.youtube-nocookie.com/embed/${clip.id}?start=${clip.start}&end=${clip.end}&rel=0&modestbranding=1`;
+	return (
+		<span className="video-clip">
+			<iframe
+				src={src}
+				title={clip.title || "Video clip"}
+				allow="accelerometer; encrypted-media; gyroscope; picture-in-picture"
+				allowFullScreen
+				referrerPolicy="strict-origin-when-cross-origin"
+			/>
+			<span className="photo-credit">
+				Clip {clock(clip.start)}–{clock(clip.end)} from "{clip.title}"{clip.channel ? `, ${clip.channel}` : ""}, YouTube
+			</span>
+		</span>
+	);
+}
+
 function makeComponents(streaming: boolean, inline: boolean, onBroken?: () => void): Components {
 	return {
 		...(inline ? { p: ({ children }) => <span>{children}</span> } : {}),
@@ -227,6 +263,10 @@ function makeComponents(streaming: boolean, inline: boolean, onBroken?: () => vo
 				// Half-written diagrams can't be drawn; wait for the message to finish.
 				if (streaming) return <div className="diagram diagram-loading">Drawing diagram…</div>;
 				return lang === "mermaid" ? <MermaidDiagram code={code} onBroken={onBroken} /> : <SvgPicture code={code} />;
+			}
+			if (lang === "youtube") {
+				if (streaming) return <div className="diagram diagram-loading">Loading video…</div>;
+				return <VideoClip code={code} />;
 			}
 			if (!lang && !code.includes("\n")) return <code className="inline-code">{children}</code>;
 			return (

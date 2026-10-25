@@ -13,6 +13,7 @@ import * as fs from "node:fs";
 import { type AppSettings, loadSettings, SESSIONS_DIR, saveSettings, WORKSPACE_DIR } from "./config.ts";
 import { buildLibrary, illustrate } from "./illustrator.ts";
 import { type Candidate, createImageTool, IMAGE_URL } from "./images.ts";
+import { CLIP_BLOCK, createVideoTool } from "./videos.ts";
 import { asMessage, type Material, parseMessage } from "./materials.ts";
 import { QUIZ_LABEL, quizPhases } from "./phases.ts";
 import { BASE_PROMPT, buildTeachingPrompt } from "./prompt.ts";
@@ -37,7 +38,7 @@ const DEFAULT_MODELS: Array<[string, RegExp]> = [
 	["openrouter", /^anthropic\/claude-sonnet/],
 ];
 // A diagram, chart or photo in a tutor reply (text or quiz/question card).
-const VISUAL = /```(mermaid|svg)|!\[[^\]]*\]\((https:\/\/|\/photos\/)/;
+const VISUAL = /```(mermaid|svg|youtube)|!\[[^\]]*\]\((https:\/\/|\/photos\/)/;
 // Hidden notes from the app to the tutor, appended to the learner's messages.
 /** Added, out of the learner's sight, to a question they asked, so the tutor answers it rather than quizzing them on it. */
 const ANSWER_NOTE =
@@ -399,6 +400,20 @@ export class Tutor implements InteractionBroker {
 		return plan.sections.map((name, i) => `Section ${i + 1}: ${name}`).filter((_, i) => !plan.taught.has(i + 1));
 	}
 
+	/** How many quiz questions were sent back for coming while the sections were taught. */
+	private teachingQuizRefusals = 0;
+
+	quizWhileTeaching(toolCallId: string): string | undefined {
+		if (this.teachingQuizRefusals >= 3) return undefined;
+		// The lesson so far, up to this card: earlier replies in full, this one up to the card.
+		const { messages, at, text } = this.textBefore(toolCallId);
+		const sofar = [...messages.slice(0, Math.max(at, 0)).filter((m) => m.role === "assistant").map((m) => textOf(m.content)), text];
+		const has = (re: RegExp) => sofar.some((t) => t.split("\n").some((l) => HEADING.test(l) && re.test(l)));
+		if (!has(/pre-?test complete|learning plan/i) || has(/final quiz/i)) return undefined;
+		this.teachingQuizRefusals++;
+		return "Not shown: there are no quiz questions while you teach the plan's sections. Quiz questions belong only in the pre-test and the Final quiz. Instead, finish teaching this section with a real-life example, a visual and the key points, then stop your reply; the page asks the learner if they have questions.";
+	}
+
 	/** How many times this lesson's wrap-up was sent back for sections still to teach. */
 	private wrapUpRefusals = 0;
 
@@ -419,7 +434,7 @@ export class Tutor implements InteractionBroker {
 		const left = this.untaught(plan);
 		if (left.length === 0) return undefined;
 		this.wrapUpRefusals++;
-		return `Not shown: you haven't taught every section of your plan yet. Still to teach: ${left.join("; ")}. Teach ${left[0].replace(/:.*/, "")} now, under the heading "${left[0]}", with its own check question, then the rest in order. Only after the last section, start the Final quiz.`;
+		return `Not shown: you haven't taught every section of your plan yet. Still to teach: ${left.join("; ")}. Teach ${left[0].replace(/:.*/, "")} now, under the heading "${left[0]}", one section per reply, then the rest in order. Only after the last section, start the Final quiz.`;
 	}
 
 	/** True once the tutor has summed up the pre-test or written the plan. */
@@ -450,6 +465,15 @@ export class Tutor implements InteractionBroker {
 			return `You were teaching your plan: ${plan.taught.size} of ${plan.sections.length} sections taught. Carry on with ${left[0]} (finish it if you had started it), then the rest in order, then the Final quiz.`;
 		}
 		return "Every section of your plan is taught. Carry on with the Final quiz where you left off, then the Summary and What to learn next.";
+	}
+
+	/** After a section, when the learner has no questions: what to teach next. */
+	private nextSectionNote(): string {
+		const plan = this.plan();
+		if (!plan) return "";
+		const left = this.untaught(plan);
+		const next = left.length > 0 ? `Teach ${left[0]} next, in this reply, then stop at its end.` : "Every section is taught: start the Final quiz now.";
+		return `\n\n<app-note>${next}</app-note>`;
 	}
 
 	planProgress(): string | undefined {
@@ -615,6 +639,7 @@ export class Tutor implements InteractionBroker {
 		this.lastQuizHadPicture = false;
 		this.feedbackDue = null;
 		this.wrapUpRefusals = 0;
+		this.teachingQuizRefusals = 0;
 		this.lastError = undefined;
 
 		// If the provider list is briefly unavailable (for example while a sign-in
@@ -653,11 +678,12 @@ export class Tutor implements InteractionBroker {
 			thinkingLevel: thinking,
 			resourceLoader: loader,
 			sessionManager,
-			tools: [...TOOL_NAMES, "find_image"],
+			tools: [...TOOL_NAMES, "find_image", "find_video"],
 			customTools: [
 				this.withVisualReminder(createQuizTool(this)),
 				this.withVisualReminder(createAskTool(this)),
 				createImageTool(() => this.session?.model?.input?.includes("image") ?? false),
+				createVideoTool(() => this.assistantTexts().join("\n").match(CLIP_BLOCK)?.length ?? 0),
 			],
 		});
 		this.session = session;
@@ -757,7 +783,9 @@ export class Tutor implements InteractionBroker {
 		const resume =
 			last?.role === "assistant" && last.stopReason === "error"
 				? `\n\n<app-note>The lesson stopped because the AI service had an error. ${this.whereWeAre()} Don't repeat questions the learner already answered.</app-note>`
-				: "";
+				: text === CONTINUE_TEXT
+					? this.nextSectionNote()
+					: "";
 		try {
 			if (session.isStreaming) {
 				await session.steer(text + (asked ? ANSWER_NOTE : "") + resume + this.visualReminder(true));

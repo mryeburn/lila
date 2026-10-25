@@ -88,6 +88,8 @@ export interface InteractionBroker {
 	sectionsLeft?(toolCallId: string, question: string, openEnded: boolean): string | undefined;
 	/** Where the lesson is in the plan, for the tutor after each answer. */
 	planProgress?(): string | undefined;
+	/** Why a quiz question can't be shown now (the plan's sections are being taught), else undefined. */
+	quizWhileTeaching?(toolCallId: string): string | undefined;
 }
 
 /** What a quiz question is about, for making a picture of its answer. */
@@ -102,7 +104,7 @@ export interface QuizAbout {
 const unanswered = (asked: string) =>
 	`Not shown: the learner asked "${asked}" and you haven't answered it. Your next reply must START with a clear, full written answer to that question, before any tool call. Only after that, ask this again.`;
 const noFeedback = (question: string) =>
-	`Not shown: the learner answered your question "${question}" and you haven't given feedback on their answer. Your next reply must START with written feedback on it: what they got right, anything important they missed, and any mistakes corrected. Only after that, ask this again.`;
+	`Not shown: the learner answered your question "${question}" and you haven't given feedback on their answer. In this same reply, first write your feedback as normal text: what they got right, anything important they missed, and any mistakes corrected. Then call ask_learner again for this question. Never type a question as plain text for the learner to answer.`;
 const HELD =
 	"Not shown: the learner wrote something before this came up. Respond to what they wrote first, then ask this again if it still fits.";
 
@@ -129,7 +131,8 @@ const isTrue = (v: unknown) => v === true || v === "true";
 // pi only adds promptGuidelines to its default system prompt, and this app
 // replaces that prompt, so prompt.ts also includes these lists itself.
 export const QUIZ_GUIDELINES = [
-	`Use ${QUIZ_TOOL} whenever there is a right answer: pre-test questions, checks after teaching, and review questions. For anything without a right answer, use ${ASK_TOOL}.`,
+	`Use ${QUIZ_TOOL} for the pre-test and the Final quiz only, never while teaching the plan's sections. For anything without a right answer, use ${ASK_TOOL}.`,
+	"About 1 in 4 questions is a picture question: put a labelled svg drawing (markers A, B, C, D on the parts) or a find_image photo in context, and ask about it. The picture must not name or give away the answer.",
 	"One question per call. Several short questions, each adjusted to the last answer, find gaps better than one long question.",
 	"Mark the right choice with correct: true. If more than one choice is right, mark them all; the learner then has to pick exactly those.",
 	"Every call needs an explanation, shown after the learner answers, saying why the right answer is right.",
@@ -209,6 +212,8 @@ export function createQuizTool(broker: InteractionBroker): ToolDefinition<typeof
 			if (owed) return textResult(noFeedback(owed), { status: "unanswered", question });
 			const early = broker.sectionsLeft?.(toolCallId, question, false);
 			if (early) return textResult(early, { status: "unanswered", question });
+			const teaching = broker.quizWhileTeaching?.(toolCallId);
+			if (teaching) return textResult(teaching, { status: "unanswered", question });
 			const asked = await broker.beforeQuiz?.(toolCallId, signal);
 			if (asked) {
 				const message = `The learner had a question about the section you just taught, so this quiz question wasn't shown yet. They asked: ${asked}\nAnswer them first, then ask this quiz question again.`;
