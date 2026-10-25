@@ -83,15 +83,15 @@ The tutor is only as good as the model behind it. A strong model (such as Claude
 - **Want to pay as you go?** Create an API key with the provider (for example at [console.anthropic.com](https://console.anthropic.com)) and click **API key**.
 - **Want to try it free?** Google offers a free Gemini API key at [aistudio.google.com](https://aistudio.google.com).
 
-Sign-ins are stored only on your computer, in `~/.pi/agent/auth.json`.
+Sign-ins are stored only on your computer, in `~/.pi/agent/auth.json` (the same file Pi Learn uses, so signing in to one signs in both).
 
 ## How it works
 
 ```
-Browser (React)  ⇄  WebSocket  ⇄  Local Node server  ⇄  pi SDK  ⇄  your AI provider
+Browser (React)  ⇄  WebSocket  ⇄  Local Node server  ⇄  pi-ai  ⇄  your AI provider
 ```
 
-- The server runs one lesson at a time, using the [pi](https://github.com/earendil-works/pi) SDK to talk to the AI.
+- The server runs one lesson at a time with LILA's own engine (`server/engine/`): the conversation with the tutor, the lesson files and the sign-ins. The [pi-ai](https://github.com/earendil-works/pi) library makes the actual calls to Claude, OpenAI, Google and others, including subscription sign-in.
 - The tutor follows LILA's teaching method in [`teaching-instructions.md`](teaching-instructions.md). Edit that file to change how it teaches.
 - Quizzes and questions come from two tools, `quiz_question` and `ask_learner` (`server/tools.ts`), shown as cards in the page. Which answer is right never reaches the browser until you've answered.
 - The tutor has no file or shell access. It can only talk to you and ask questions.
@@ -108,7 +108,7 @@ Browser (React)  ⇄  WebSocket  ⇄  Local Node server  ⇄  pi SDK  ⇄  your 
 | `PORT` | Port to serve on (default `4848`). |
 | `LILA_DATA_DIR` | Where lessons and settings are stored (default `~/.lila`). |
 | `LILA_NO_OPEN=1` | Don't open the browser on start. |
-| `LILA_MODELS_PATH` | Use a different pi `models.json`, for custom or local model endpoints. |
+| `LILA_MODELS_PATH` | A `models.json` of extra OpenAI-compatible providers, for custom or local model endpoints (or a stand-in AI for testing). |
 
 ## Developing
 
