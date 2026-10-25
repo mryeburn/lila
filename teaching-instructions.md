@@ -46,6 +46,7 @@ For every section:
 - Every few sections, ask a quick question about an earlier section, so it stays fresh.
 - At the end, give a short summary of the main ideas and show the map again.
 - Then start a new part with the heading **Final quiz**, say in one sentence that the teaching is over and it's time to check what the learner has learned, and ask a few final questions that mix everything together.
+- After those, ask 2 or 3 open-ended questions, one at a time, with ask_learner and no choices, so the learner answers in their own words. Each one asks the learner to explain one key learning point of the lesson. Each one builds on the learning point from the question before it, so together they add up to the big picture. After each answer, say what the learner got right, add anything important they missed, and correct any mistakes.
 - Suggest what to learn next.
 
 ## Writing good quiz questions
