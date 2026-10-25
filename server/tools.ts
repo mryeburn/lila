@@ -77,6 +77,17 @@ export interface InteractionBroker {
 	unansweredQuestion?(toolCallId: string): string | undefined;
 	/** A quiz question is about to be shown: a picture for its explanation can be started now. */
 	quizShown?(toolCallId: string, quiz: QuizAbout): void;
+	/** The learner's open-ended answer to this question still has no written feedback before this card. */
+	feedbackMissing?(toolCallId: string): string | undefined;
+	/** The learner answered an open-ended question; the tutor owes them feedback on it. */
+	openAnswered?(question: string): void;
+	/**
+	 * Why this card is too early (the tutor is wrapping up with plan sections
+	 * still to teach), else undefined.
+	 */
+	sectionsLeft?(toolCallId: string, question: string, openEnded: boolean): string | undefined;
+	/** Where the lesson is in the plan, for the tutor after each answer. */
+	planProgress?(): string | undefined;
 }
 
 /** What a quiz question is about, for making a picture of its answer. */
@@ -90,6 +101,8 @@ export interface QuizAbout {
 
 const unanswered = (asked: string) =>
 	`Not shown: the learner asked "${asked}" and you haven't answered it. Your next reply must START with a clear, full written answer to that question, before any tool call. Only after that, ask this again.`;
+const noFeedback = (question: string) =>
+	`Not shown: the learner answered your question "${question}" and you haven't given feedback on their answer. Your next reply must START with written feedback on it: what they got right, anything important they missed, and any mistakes corrected. Only after that, ask this again.`;
 const HELD =
 	"Not shown: the learner wrote something before this came up. Respond to what they wrote first, then ask this again if it still fits.";
 
@@ -192,6 +205,10 @@ export function createQuizTool(broker: InteractionBroker): ToolDefinition<typeof
 			if (broker.learnerWaiting?.()) return textResult(HELD, { status: "held", question });
 			const open = broker.unansweredQuestion?.(toolCallId);
 			if (open) return textResult(unanswered(open), { status: "unanswered", question });
+			const owed = broker.feedbackMissing?.(toolCallId);
+			if (owed) return textResult(noFeedback(owed), { status: "unanswered", question });
+			const early = broker.sectionsLeft?.(toolCallId, question, false);
+			if (early) return textResult(early, { status: "unanswered", question });
 			const asked = await broker.beforeQuiz?.(toolCallId, signal);
 			if (asked) {
 				const message = `The learner had a question about the section you just taught, so this quiz question wasn't shown yet. They asked: ${asked}\nAnswer them first, then ask this quiz question again.`;
@@ -233,6 +250,8 @@ export function createQuizTool(broker: InteractionBroker): ToolDefinition<typeof
 			else lines.push(`The learner got it wrong. They chose ${selected.map(quote).join(" and ") || "nothing"}; the right answer: ${rightAnswer}.`);
 			if (note) lines.push(`Their note: ${note}`);
 			lines.push("They have seen your explanation. Build on what this answer shows about their understanding.");
+			const progress = broker.planProgress?.();
+			if (progress) lines.push(progress);
 
 			const result = {
 				status: "answered",
@@ -286,6 +305,10 @@ export function createAskTool(broker: InteractionBroker): ToolDefinition<typeof 
 			if (broker.learnerWaiting?.()) return textResult(HELD, { status: "held", question, mode });
 			const open = broker.unansweredQuestion?.(toolCallId);
 			if (open) return textResult(unanswered(open), { status: "unanswered", question, mode });
+			const owed = broker.feedbackMissing?.(toolCallId);
+			if (owed) return textResult(noFeedback(owed), { status: "unanswered", question, mode });
+			const early = broker.sectionsLeft?.(toolCallId, question, mode === "text");
+			if (early) return textResult(early, { status: "unanswered", question, mode });
 			const answer = await broker.request<AskAnswer>(
 				{ kind: "ask", id: toolCallId, question, details, mode, options },
 				signal,
@@ -304,9 +327,14 @@ export function createAskTool(broker: InteractionBroker): ToolDefinition<typeof 
 			}
 
 			const said = answers.map((a) => (a.type === "other" ? `(in their own words) ${a.label}` : a.label)).filter(Boolean);
-			const text = said.length
+			let text = said.length
 				? `Question: ${question}\nThe learner answered: ${said.join("; ")}`
 				: `Question: ${question}\nThe learner sent an empty answer.`;
+			// An answer in their own words gets feedback before anything else.
+			if (mode === "text" && said.length) {
+				broker.openAnswered?.(question);
+				text += "\nBefore asking anything else, give written feedback on this answer: what they got right, anything important they missed, and any mistakes corrected.";
+			}
 			return textResult(text, { status: "answered", question, context: details, mode, options, answers });
 		},
 	};

@@ -47,11 +47,12 @@ For every section:
 Every few sections, ask a quick question about an earlier section, so it stays fresh.
 
 ### 4. Review and wrap up
-Only after the last section of the plan has been taught and checked:
-- Give a short summary of the main ideas.
-- Then always start a new part with the heading **Final quiz**, say in one sentence that the teaching is over and it's time to check what the learner has learned, and ask a few final questions that mix everything together.
-- After those, ask 2 or 3 open-ended questions, one at a time, with ask_learner and no choices, so the learner answers in their own words. Each one asks the learner to explain one key learning point of the lesson. Each one builds on the learning point from the question before it, so together they add up to the big picture. After each answer, say what the learner got right, add anything important they missed, and correct any mistakes.
-- Suggest what to learn next.
+Only after the last section of the plan has been taught and checked, wrap up in this order, and nothing after it:
+1. Start a new part with the heading **Final quiz**. Say in one sentence that the teaching is over and it's time to check what the learner has learned, and ask a few final questions that mix everything together.
+2. Then ask 2 or 3 open-ended questions, one at a time, with ask_learner and no choices. Start each one with "In your own words". Each one asks the learner to explain one key learning point of the lesson, and builds on the learning point from the question before it, so together they add up to the big picture.
+3. After each open-ended answer, before asking anything else, give written feedback on it: say what the learner got right, add anything important they missed, and correct any mistakes.
+4. After the last open-ended answer and its feedback, give a short summary of the main ideas under the heading **Summary**.
+5. Finish with suggestions under the heading **What to learn next**. The lesson ends there: no more questions.
 
 ## Writing good quiz questions
 - Each question tests one idea.
