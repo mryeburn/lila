@@ -465,8 +465,35 @@ export class Tutor implements InteractionBroker {
 		const plan = this.plan();
 		if (!plan) return "";
 		const left = this.untaught(plan);
-		const next = left.length > 0 ? `Teach ${left[0]} next, in this reply, then stop at its end.` : "Every section is taught: start the Final quiz now.";
+		if (left.length === 0) return "\n\n<app-note>Every section is taught: start the Final quiz now. Make about 1 in 4 of its questions picture questions, some with a real find_image photo.</app-note>";
+		let next = `Teach ${left[0]} next, in this reply, then stop at its end. Include at least one real find_image photo in it.`;
+		if (!this.triedVideo()) next += " The lesson has no video clip yet: if this section shows something happening or moving, include one find_video clip.";
 		return `\n\n<app-note>${next}</app-note>`;
+	}
+
+	/** Whether the tutor has searched for a video in this lesson. */
+	private triedVideo(): boolean {
+		return ((this.session?.messages ?? []) as any[]).some(
+			(m) => m.role === "assistant" && (m.content ?? []).some((b: any) => b.type === "toolCall" && b.name === "find_video"),
+		);
+	}
+
+	/** Quiz questions asked in a row, most recent first, with no picture in them (stops at teaching). */
+	private quizQuestionsWithoutPicture(): number {
+		let count = 0;
+		const messages = (this.session?.messages ?? []) as any[];
+		for (let i = messages.length - 1; i >= 0; i--) {
+			const msg = messages[i];
+			if (msg.role !== "assistant") continue;
+			if (textOf(msg.content).length > 600) break;
+			for (const block of [...(msg.content ?? [])].reverse()) {
+				if (block.type !== "toolCall" || block.name !== QUIZ_TOOL) continue;
+				const a = block.arguments ?? {};
+				if (VISUAL.test(`${a.context ?? ""}\n${a.question ?? ""}`)) return count;
+				count++;
+			}
+		}
+		return count;
 	}
 
 	planProgress(): string | undefined {
@@ -812,7 +839,9 @@ export class Tutor implements InteractionBroker {
 			...tool,
 			execute: async (...args: any[]) => {
 				const result = await (tool.execute as (...a: any[]) => ReturnType<T["execute"]>)(...args);
-				const note = this.visualReminder();
+				let note = this.visualReminder();
+				if (tool.name === QUIZ_TOOL && !note && this.quizQuestionsWithoutPicture() >= 3)
+					note = "\n\n[Note from the LILA app, not from the learner: your last 3 quiz questions had no picture. If you ask another, make it a picture question: a labelled svg or a real find_image photo in its context.]";
 				return note ? { ...result, content: [...result.content, { type: "text" as const, text: note }] } : result;
 			},
 		};
