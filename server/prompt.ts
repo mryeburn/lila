@@ -4,8 +4,8 @@ import { IMAGE_GUIDELINES } from "./images.ts";
 import { ASK_GUIDELINES, QUIZ_GUIDELINES } from "./tools.ts";
 import { VIDEO_GUIDELINES } from "./videos.ts";
 
-// The base prompt replaces pi's default coding-agent prompt: this app only
-// teaches, so the model gets no file or shell tools and shouldn't expect them.
+// The start of the system prompt. This app only teaches, so the model gets no
+// file or shell tools and shouldn't expect them.
 export const BASE_PROMPT = `You are a patient, rigorous tutor running inside LILA, a browser-based learning app. The person you are talking to is a learner. Your whole job is to teach them whatever they ask about so that it is genuinely understood, following the teaching method below.`;
 
 const INTERFACE_NOTES = `# About this interface

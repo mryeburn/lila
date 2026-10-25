@@ -1,16 +1,9 @@
-import {
-	type AgentSession,
-	type AgentSessionEvent,
-	createAgentSession,
-	DefaultResourceLoader,
-	getAgentDir,
-	type ModelRuntime,
-	SessionManager,
-	SettingsManager,
-	type ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import * as fs from "node:fs";
 import { type AppSettings, loadSettings, SESSIONS_DIR, saveSettings, WORKSPACE_DIR } from "./config.ts";
+import { Conversation, type ConversationEvent, type ToolDefinition } from "./engine/conversation.ts";
+import { LessonFile } from "./engine/lessonfile.ts";
 import { buildLibrary, illustrate } from "./illustrator.ts";
 import { type Candidate, createImageTool, IMAGE_URL } from "./images.ts";
 import { CLIP_BLOCK, createVideoTool } from "./videos.ts";
@@ -252,11 +245,11 @@ function quizContent(result: any): string {
 }
 
 /**
- * Owns the one active lesson (a pi AgentSession) and translates between pi's
- * event stream and the simple messages the web page understands.
+ * Owns the one active lesson (a Conversation) and translates between its
+ * events and the simple messages the web page understands.
  */
 export class Tutor implements InteractionBroker {
-	private session: AgentSession | undefined;
+	private session: Conversation | undefined;
 	private unsubscribe: (() => void) | undefined;
 	private pending = new Map<string, { interaction: PendingInteraction; resolve: (answer: unknown) => void }>();
 	private streamingText: string | null = null;
@@ -265,13 +258,13 @@ export class Tutor implements InteractionBroker {
 	private retrying: string | null = null;
 	private settings: AppSettings = loadSettings();
 	private busy = false;
-	/** Results of answered cards whose tool-result message pi hasn't added yet. */
+	/** Results of answered cards whose tool-result message isn't in the lesson yet. */
 	private finishedResults = new Map<string, unknown>();
 	private pictures = new LessonPictures(undefined);
 	/** Every other quiz gets a picture when it has none of its own. */
 	private lastQuizHadPicture = false;
 	/** The model of the last lesson, kept while switching lessons. */
-	private lastModel: AgentSession["model"];
+	private lastModel: Model<Api> | undefined;
 
 	constructor(
 		readonly runtime: ModelRuntime,
@@ -600,8 +593,7 @@ export class Tutor implements InteractionBroker {
 	}
 
 	async lessons(): Promise<LessonSummary[]> {
-		const list = await SessionManager.list(WORKSPACE_DIR, SESSIONS_DIR).catch(() => []);
-		return list
+		return LessonFile.list(SESSIONS_DIR)
 			.filter((s) => s.messageCount > 0)
 			.sort((a, b) => b.modified.getTime() - a.modified.getTime())
 			.map((s) => ({
@@ -645,41 +637,17 @@ export class Tutor implements InteractionBroker {
 		// If the provider list is briefly unavailable (for example while a sign-in
 		// refreshes), carry on with the model the last lesson used.
 		const model = (await this.pickModel()) ?? this.usableLastModel();
-		const loader = new DefaultResourceLoader({
-			cwd: WORKSPACE_DIR,
-			agentDir: getAgentDir(),
-			noExtensions: true,
-			noSkills: true,
-			noPromptTemplates: true,
-			noThemes: true,
-			noContextFiles: true,
-			systemPrompt: BASE_PROMPT,
-			appendSystemPrompt: buildTeachingPrompt(),
-		});
-		await loader.reload();
-
-		const sessionManager =
-			path && fs.existsSync(path)
-				? SessionManager.open(path, SESSIONS_DIR)
-				: SessionManager.create(WORKSPACE_DIR, SESSIONS_DIR);
-
+		const file = path && fs.existsSync(path) ? LessonFile.open(path) : LessonFile.create(SESSIONS_DIR, WORKSPACE_DIR);
 		const thinking = THINKING_LEVELS.includes(this.settings.thinkingLevel as Thinking)
 			? (this.settings.thinkingLevel as Thinking)
 			: "medium";
-		// Busy AI servers ("Overloaded") usually recover within a minute or two,
-		// so keep trying for longer than pi's default (3 tries over 14 seconds).
-		const settingsManager = SettingsManager.create(WORKSPACE_DIR, getAgentDir());
-		settingsManager.applyOverrides({ retry: { enabled: true, maxRetries: 6, baseDelayMs: 3000, maxAgentDelayMs: 30_000 } });
-		const { session } = await createAgentSession({
-			cwd: WORKSPACE_DIR,
-			modelRuntime: this.runtime,
-			settingsManager,
+		const session = new Conversation({
+			models: this.runtime,
+			file,
 			model,
 			thinkingLevel: thinking,
-			resourceLoader: loader,
-			sessionManager,
-			tools: [...TOOL_NAMES, "find_image", "find_video"],
-			customTools: [
+			systemPrompt: `${BASE_PROMPT}\n\n${buildTeachingPrompt()}`,
+			tools: [
 				this.withVisualReminder(createQuizTool(this)),
 				this.withVisualReminder(createAskTool(this)),
 				createImageTool(() => this.session?.model?.input?.includes("image") ?? false),
@@ -1012,7 +980,7 @@ export class Tutor implements InteractionBroker {
 	}
 
 	/** The last lesson's model, unless the learner has since signed out of its provider. */
-	private usableLastModel(): AgentSession["model"] {
+	private usableLastModel(): Model<Api> | undefined {
 		const model = this.lastModel;
 		return model && this.runtime.hasConfiguredAuth(model.provider) ? model : undefined;
 	}
@@ -1082,11 +1050,11 @@ export class Tutor implements InteractionBroker {
 		return out;
 	}
 
-	// ── pi events → page ─────────────────────────────────────────────────────
+	// ── Conversation events → page ─────────────────────────────────────────────────────
 
 	private lastStreamPush = 0;
 
-	private onEvent(event: AgentSessionEvent): void {
+	private onEvent(event: ConversationEvent): void {
 		switch (event.type) {
 			case "agent_start":
 				if (!this.busy) {

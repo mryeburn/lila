@@ -6,7 +6,7 @@
 // Which choice is right, and the explanation, stay on the server until the
 // learner has answered.
 
-import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { ToolDefinition } from "./engine/conversation.ts";
 import { Type } from "typebox";
 
 export interface DisplayOption {
@@ -128,8 +128,7 @@ function textResult(text: string, details: Record<string, unknown>) {
 // Models sometimes send booleans as strings.
 const isTrue = (v: unknown) => v === true || v === "true";
 
-// pi only adds promptGuidelines to its default system prompt, and this app
-// replaces that prompt, so prompt.ts also includes these lists itself.
+// Rules for each tool; prompt.ts puts them in the system prompt.
 export const QUIZ_GUIDELINES = [
 	`Use ${QUIZ_TOOL} for the pre-test and the Final quiz only, never while teaching the plan's sections. For anything without a right answer, use ${ASK_TOOL}.`,
 	"About 1 in 4 questions is a picture question: put a labelled svg drawing (markers A, B, C, D on the parts) or a find_image photo in context, and ask about it. The picture must not name or give away the answer.",
@@ -179,11 +178,9 @@ export function createQuizTool(broker: InteractionBroker): ToolDefinition<typeof
 		label: "Quiz",
 		description:
 			"Show the learner a multiple-choice question that has a right answer. The page marks their answer right or wrong, shows the right answer and your explanation, and waits for them to click Next question. Returns how they answered.",
-		promptSnippet: `${QUIZ_TOOL}: ask a graded multiple-choice question and get the learner's answer.`,
-		promptGuidelines: QUIZ_GUIDELINES,
 		parameters: QuizParams,
-		// One card at a time. In parallel mode, pi holds back every result until
-		// the whole batch is answered, so answered cards would go blank.
+		// One card at a time. In parallel mode, results are held back until the
+		// whole batch is answered, so answered cards would go blank.
 		executionMode: "sequential",
 
 		async execute(toolCallId, params, signal) {
@@ -295,8 +292,6 @@ export function createAskTool(broker: InteractionBroker): ToolDefinition<typeof 
 		label: "Question",
 		description:
 			"Ask the learner something that has no right answer, such as their goal, a choice about the lesson, or a free-text reply, and wait for their answer.",
-		promptSnippet: `${ASK_TOOL}: ask the learner one question with no right answer and wait for the reply.`,
-		promptGuidelines: ASK_GUIDELINES,
 		parameters: AskParams,
 		executionMode: "sequential",
 
