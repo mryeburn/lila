@@ -361,7 +361,9 @@ export class Conversation {
 			}
 			const message = await response.result();
 			if (!started && !onUpdate) this.emit({ type: "message_start", message });
-			return { ...message, thinkingLevel: level };
+			// Saved with any broken tool arguments already mended, so the lesson shows them.
+			const content = message.content.map((b) => (b.type === "toolCall" ? recoverArguments(b) : b));
+			return { ...message, content, thinkingLevel: level };
 		} catch (err) {
 			return failed((err as Error).message, signal.aborted);
 		}
