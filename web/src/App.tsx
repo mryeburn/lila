@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { TranscriptItem } from "../../server/protocol.ts";
-import { AddResource } from "./components/AddResource.tsx";
+import { AddResource, DropBox, isDroppable, sendDropped } from "./components/AddResource.tsx";
 import { AskCard, AskResult, QuestionsInvite, QuizCard, QuizResult } from "./components/Cards.tsx";
 import { Markdown } from "./components/Markdown.tsx";
 import { Settings } from "./components/Settings.tsx";
@@ -53,7 +53,17 @@ function Pictures({
 	);
 }
 
-function Item({ item, store }: { item: TranscriptItem; store: TutorStore }) {
+/** The learner said yes to "Do you have any files or web links…?" */
+function saidYesToFiles(item: TranscriptItem): boolean {
+	return (
+		item.kind === "ask" &&
+		/files or web links/i.test(item.question) &&
+		item.result?.status === "answered" &&
+		(item.result.answers ?? []).some((a: any) => /^yes\b/i.test(String(a.label ?? "").trim()))
+	);
+}
+
+function Item({ item, store, latestCard }: { item: TranscriptItem; store: TutorStore; latestCard?: boolean }) {
 	switch (item.kind) {
 		case "user":
 			return (
@@ -122,7 +132,10 @@ function Item({ item, store }: { item: TranscriptItem; store: TutorStore }) {
 				return item.kind === "quiz" ? (
 					<QuizResult question={item.question} details={item.details} result={item.result} pictures={pictures} />
 				) : (
-					<AskResult question={item.question} details={item.details} result={item.result} />
+					<>
+						<AskResult question={item.question} details={item.details} result={item.result} />
+						{latestCard && saidYesToFiles(item) && <DropBox store={store} />}
+					</>
 				);
 			}
 			// Queued behind the card the learner is on now: show it when its turn comes.
@@ -183,6 +196,8 @@ export function App() {
 	// the top of the screen. Scrolling up to reread stops the following until
 	// they next do something. "More below" takes them down a screen at a time.
 	const [moreBelow, setMoreBelow] = useState(false);
+	/** Files or a link are being dragged over the page. */
+	const [dragging, setDragging] = useState(false);
 	const checkMoreBelow = (el: HTMLElement) => setMoreBelow(el.scrollHeight - el.scrollTop - el.clientHeight > 80);
 	/** The scroll position the learner should be at; restored if the page briefly gets shorter. */
 	const place = useRef(0);
@@ -243,6 +258,7 @@ export function App() {
 	};
 
 	const last = items.at(-1);
+	const latestCard = [...items].reverse().find((item) => item.kind === "quiz" || item.kind === "ask");
 	// The tutor finished a teaching section and is waiting: invite questions.
 	const inviteQuestions =
 		connected &&
@@ -323,7 +339,34 @@ export function App() {
 			</aside>
 			<div className="scrim" onClick={() => setSidebarOpen(false)} />
 
-			<main className="main">
+			<main
+				className="main"
+				onDragEnter={(e) => isDroppable(e.dataTransfer) && setDragging(true)}
+				onDragOver={(e) => {
+					if (!isDroppable(e.dataTransfer)) return;
+					e.preventDefault();
+					setDragging(true);
+				}}
+				onDragLeave={(e) => {
+					// Only when leaving the page area, not when moving between its parts.
+					if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+				}}
+				onDrop={(e) => {
+					setDragging(false);
+					if (e.defaultPrevented || !isDroppable(e.dataTransfer)) return;
+					e.preventDefault();
+					sendDropped(store, e.dataTransfer);
+				}}
+			>
+				{/* The box below a "Yes" already says where to drop, so no second one. */}
+				{dragging && !scrollRef.current?.querySelector(".drop-area") && (
+					<div className="drop-overlay">
+						<div className="drop-box over">
+							<span className="drop-icon">⬇</span>
+							<strong>Drop files or links here to add them to the lesson</strong>
+						</div>
+					</div>
+				)}
 				<header className="topbar">
 					<button type="button" className="icon-button menu" onClick={() => setSidebarOpen(true)} aria-label="Lessons">
 						☰
@@ -388,7 +431,12 @@ export function App() {
 							</div>
 						)}
 						{items.map((item, i) => (
-							<Item key={item.kind === "quiz" || item.kind === "ask" ? item.id : `${item.kind}-${i}`} item={item} store={store} />
+							<Item
+								key={item.kind === "quiz" || item.kind === "ask" ? item.id : `${item.kind}-${i}`}
+								item={item}
+								store={store}
+								latestCard={item === latestCard}
+							/>
 						))}
 						{streaming !== null && streaming.trim() !== "" && !lastIsStreamingDuplicate && (
 							<div className="msg tutor">

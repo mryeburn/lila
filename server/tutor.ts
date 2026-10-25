@@ -473,16 +473,31 @@ export class Tutor implements InteractionBroker {
 		this.busy = false;
 	}
 
+	/** Materials are sent one at a time, so several dropped together don't trip over each other. */
+	private materialsSent: Promise<void> = Promise.resolve();
+
 	/** Adds the learner's own material to the lesson as a message to the tutor. */
 	async addMaterial(material: Material): Promise<void> {
-		await this.prompt(asMessage(material), `I've added a learning resource: ${material.name}`);
+		const previous = this.materialsSent;
+		let sent!: () => void;
+		this.materialsSent = new Promise((resolve) => (sent = resolve));
+		await previous;
+		const run = this.prompt(asMessage(material), `I've added a learning resource: ${material.name}`, false, true);
+		// The next one may go once the tutor is working on this one (it then
+		// reads it as soon as it can), or once this run is over.
+		const started = (async () => {
+			for (let i = 0; i < 100 && !this.session?.isStreaming; i++) await new Promise((r) => setTimeout(r, 50));
+		})();
+		await Promise.race([run, started]);
+		sent();
+		await run;
 	}
 
 	/**
 	 * Sends the learner's message. `cardText` is used instead when the message
 	 * answers a waiting card (a short note in place of a whole document).
 	 */
-	async prompt(text: string, cardText = text, asked = false): Promise<void> {
+	async prompt(text: string, cardText = text, asked = false, material = false): Promise<void> {
 		if (!this.session) await this.openLesson();
 		const session = this.session!;
 		if (!session.model) {
@@ -526,7 +541,8 @@ export class Tutor implements InteractionBroker {
 		// those back until the message is delivered, and ask for an answer first.
 		if (session.isStreaming) {
 			this.holdCardsUntil = "user";
-			asked = true;
+			// A file or link isn't a question to answer.
+			if (!material) asked = true;
 		}
 		if (asked) this.openQuestion = { text, refusals: 0 };
 		try {
