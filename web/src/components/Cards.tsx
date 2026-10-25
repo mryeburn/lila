@@ -183,7 +183,7 @@ export function QuizResult({
 			{pictures}
 			{onNext && (
 				<QuestionsBox
-					text="If you have a question about this question or its answer, type it in here. Otherwise, continue the quiz."
+					text="Any questions? Type your question here or continue the quiz."
 					continueLabel="Continue the quiz →"
 					onContinue={onNext}
 					onAsk={onAsk}
