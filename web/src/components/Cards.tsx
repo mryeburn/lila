@@ -190,6 +190,9 @@ export function AskCard({ ask, onAnswer }: { ask: Ask; onAnswer: (answer: AskAns
 	const [text, setText] = useState("");
 	const [sent, setSent] = useState(false);
 	const multi = ask.mode === "multi-select";
+	// Yes and No already cover every answer.
+	const yesNo =
+		!multi && ask.options.length === 2 && ask.options.map((o) => o.label.trim().toLowerCase().replace(/[.!]$/, "")).sort().join() === "no,yes";
 
 	const submit = (answer: AskAnswer) => {
 		setSent(true);
@@ -258,7 +261,7 @@ export function AskCard({ ask, onAnswer }: { ask: Ask; onAnswer: (answer: AskAns
 						</span>
 					</button>
 				))}
-				{otherOn ? (
+				{yesNo ? null : otherOn ? (
 					<div className="other-row">
 						<input
 							className="text-input"
