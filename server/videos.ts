@@ -4,7 +4,7 @@
 // and reads the top videos' timed transcripts, so the tutor can pick the exact
 // stretch. The page plays only that stretch.
 
-import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { ToolDefinition } from "./engine/conversation.ts";
 import { Type } from "typebox";
 import { loadSettings } from "./config.ts";
 import { getJson } from "./images.ts";
@@ -119,8 +119,6 @@ export function createVideoTool(clipsShown: () => number): ToolDefinition<typeof
 		label: "Video search",
 		description:
 			"Find a short stretch (15 to 40 seconds) of a YouTube video that shows one point, to play in the lesson. Returns the top videos' timed transcripts so you can pick the stretch.",
-		promptSnippet: "Use find_video, rarely, to show a 15 to 40 second clip of a YouTube video where a moving picture really helps.",
-		promptGuidelines: VIDEO_GUIDELINES,
 		parameters: Params,
 
 		async execute(_toolCallId, params, signal) {

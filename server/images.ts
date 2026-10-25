@@ -15,7 +15,7 @@
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { ToolDefinition } from "./engine/conversation.ts";
 import { Type } from "typebox";
 import { DATA_DIR, loadSettings } from "./config.ts";
 
@@ -77,8 +77,6 @@ export function createImageTool(canSeeImages: () => boolean): ToolDefinition<typ
 		label: "Image search",
 		description:
 			"Search for a real photo, scan or illustration to show the learner: images from the matching Wikipedia article, Wikimedia Commons, the US National Library of Medicine's Open-i clinical image collection and, when set up, Google Images. Returns up to six candidates, each with a ready-to-paste markdown line.",
-		promptSnippet: "Use find_image to find a real photo, scan or illustration from a trusted library to show the learner.",
-		promptGuidelines: IMAGE_GUIDELINES,
 		parameters: Params,
 
 		async execute(_toolCallId, params, signal) {
