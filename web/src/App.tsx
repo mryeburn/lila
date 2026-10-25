@@ -69,6 +69,24 @@ const START_QUIZ: Record<QuizPhase, { text: string; label: string }> = {
 	},
 };
 
+/** Cards the learner never saw (the app sent them back to the tutor). */
+const NOT_SHOWN = ["unanswered", "held", "unavailable"];
+
+/**
+ * The tutor's text since the learner last did something, skipping cards that
+ * were never shown, so a section followed by a refused card still counts.
+ */
+function turnText(items: TranscriptItem[]): string {
+	let text = "";
+	for (let i = items.length - 1; i >= 0; i--) {
+		const item = items[i];
+		if (item.kind === "assistant") text = `${item.text}\n${text}`;
+		else if ((item.kind === "quiz" || item.kind === "ask") && NOT_SHOWN.includes(item.result?.status ?? "")) continue;
+		else break;
+	}
+	return text;
+}
+
 /** The learner said yes to "Do you have any files or web links…?" */
 function saidYesToFiles(item: TranscriptItem): boolean {
 	return (
@@ -310,7 +328,7 @@ export function App() {
 		!busy &&
 		Object.keys(store.interactions).length === 0 &&
 		last?.kind === "assistant" &&
-		last.text.trim().length >= MIN_SECTION_TEXT;
+		turnText(items).trim().length >= MIN_SECTION_TEXT;
 	const lastIsStreamingDuplicate = streaming !== null && last?.kind === "assistant" && last.text === streaming;
 
 	return (

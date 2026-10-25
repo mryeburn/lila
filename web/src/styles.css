@@ -144,7 +144,8 @@ a {
 .brand {
 	display: flex;
 	align-items: center;
-	gap: 10px;
+	/* Small, so the L box and "ILA" read as one word. */
+	gap: 3px;
 	font-weight: 700;
 	font-size: 18px;
 	padding: 4px 4px 8px;
@@ -1378,4 +1379,18 @@ button.option:not(:disabled):hover {
 	margin: 8px 0;
 	padding-left: 22px;
 	line-height: 1.6;
+}
+/* A short YouTube clip the tutor picked. */
+.video-clip {
+	display: block;
+	margin: 12px 0;
+}
+.video-clip iframe {
+	display: block;
+	width: 100%;
+	max-width: 640px;
+	aspect-ratio: 16 / 9;
+	border: 0;
+	border-radius: 10px;
+	background: #000;
 }

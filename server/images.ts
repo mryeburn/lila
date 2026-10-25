@@ -203,7 +203,7 @@ export async function searchWikipedia(query: string, signal?: AbortSignal, max =
 		});
 }
 
-async function getJson(url: string, signal?: AbortSignal): Promise<any> {
+export async function getJson(url: string, signal?: AbortSignal): Promise<any> {
 	const res = await fetch(url, {
 		headers: { "user-agent": USER_AGENT, accept: "application/json" },
 		signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(20_000)]) : AbortSignal.timeout(20_000),
