@@ -141,6 +141,9 @@ async function handle(ws: WebSocket, msg: ClientMessage) {
 		case "abort":
 			await tutor.abort();
 			break;
+		case "retry":
+			await tutor.retry();
+			break;
 		case "new_lesson":
 			await tutor.openLesson();
 			break;

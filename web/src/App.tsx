@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { QUIZ_LABEL, type QuizPhase, quizPhases } from "../../server/phases.ts";
 import type { TranscriptItem } from "../../server/protocol.ts";
 import { AddResource, DropBox, isDroppable, sendDropped } from "./components/AddResource.tsx";
 import { AskCard, AskResult, QuestionsInvite, QuizCard, QuizResult } from "./components/Cards.tsx";
@@ -51,23 +52,6 @@ function Pictures({
 			)}
 		</div>
 	);
-}
-
-type QuizPhase = "pre-test" | "lesson" | "final";
-
-/** Which part of the lesson each item is in, from the tutor's headings so far. */
-function quizPhases(items: TranscriptItem[]): QuizPhase[] {
-	let phase: QuizPhase = "pre-test";
-	return items.map((item) => {
-		if (item.kind === "assistant") {
-			const headings = item.text.match(/^\s*(#{1,6}\s.*|\*\*[^*]+\*\*\s*)$/gm) ?? [];
-			for (const h of headings) {
-				if (/pre-?test complete|learning plan/i.test(h) && phase === "pre-test") phase = "lesson";
-				if (/final quiz/i.test(h)) phase = "final";
-			}
-		}
-		return phase;
-	});
 }
 
 const START_QUIZ: Record<QuizPhase, { text: string; label: string }> = {
@@ -127,7 +111,16 @@ function Item({
 				</div>
 			);
 		case "error":
-			return <div className="msg error-msg">Something went wrong: {item.text}</div>;
+			return (
+				<div className="msg error-msg">
+					<p>{item.text}</p>
+					{item.retry && (
+						<button type="button" className="primary small" onClick={() => store.send({ type: "retry" })}>
+							Try again
+						</button>
+					)}
+				</div>
+			);
 		case "resource":
 			return (
 				<div className="msg user">
@@ -144,7 +137,7 @@ function Item({
 		case "ask": {
 			const pending = store.interactions[item.id];
 			const answer = (answer: unknown) => store.send({ type: "answer", id: item.id, answer });
-			if (pending?.kind === "quiz") return <QuizCard quiz={pending} onAnswer={answer} />;
+			if (pending?.kind === "quiz") return <QuizCard quiz={pending} label={QUIZ_LABEL[phase]} onAnswer={answer} />;
 			if (pending?.kind === "ask") return <AskCard ask={pending} onAnswer={answer} />;
 			if (pending?.kind === "pause")
 				return (
@@ -162,6 +155,7 @@ function Item({
 			if (pending?.kind === "graded")
 				return (
 					<QuizResult
+						label={QUIZ_LABEL[phase]}
 						question={item.question}
 						details={item.details}
 						result={pending.result}
@@ -172,7 +166,13 @@ function Item({
 				);
 			if (item.result) {
 				return item.kind === "quiz" ? (
-					<QuizResult question={item.question} details={item.details} result={item.result} pictures={pictures} />
+					<QuizResult
+						label={QUIZ_LABEL[phase]}
+						question={item.question}
+						details={item.details}
+						result={item.result}
+						pictures={pictures}
+					/>
 				) : (
 					<>
 						<AskResult question={item.question} details={item.details} result={item.result} />
@@ -508,6 +508,7 @@ export function App() {
 								onAsk={(text) => submit(text, true)}
 							/>
 						)}
+						{busy && state?.retrying && <div className="msg retry-msg">{state.retrying}</div>}
 						{busy && Object.keys(store.interactions).length === 0 && (streaming === null || streaming.trim() === "") && (
 							<div className="thinking">
 								<span />
