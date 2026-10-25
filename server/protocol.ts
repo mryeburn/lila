@@ -42,6 +42,8 @@ export interface TutorState {
 	lessonPath: string | null;
 	lessonTitle: string | null;
 	error: string | null;
+	/** Photos from Google Images are set up. */
+	webPhotos: boolean;
 }
 
 export interface LessonSummary {
@@ -105,6 +107,7 @@ export type ClientMessage =
 	| { type: "list_providers" }
 	| { type: "set_model"; provider: string; modelId: string }
 	| { type: "set_thinking"; level: string }
+	| { type: "set_photo_key"; key: string }
 	| { type: "login_start"; provider: string; method: "api_key" | "oauth" }
 	| { type: "login_reply"; id: string; value: string }
 	| { type: "login_cancel" }

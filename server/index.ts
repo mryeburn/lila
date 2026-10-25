@@ -9,6 +9,7 @@ import { DATA_DIR, ensureDirs } from "./config.ts";
 import { type Material, MaterialError, readFile, readLink } from "./materials.ts";
 import type { ClientMessage, LoginPrompt, ModelInfo, ProviderInfo, ServerMessage } from "./protocol.ts";
 import { Tutor } from "./tutor.ts";
+import { webPhoto } from "./images.ts";
 import { readPictureLog } from "./picturelog.ts";
 import { APP_VERSION, checkForUpdate, initialStatus, startUpdate, type UpdateStatus } from "./update.ts";
 
@@ -161,6 +162,9 @@ async function handle(ws: WebSocket, msg: ClientMessage) {
 		case "set_thinking":
 			await tutor.setThinking(msg.level);
 			break;
+		case "set_photo_key":
+			await tutor.setPhotoKey(msg.key);
+			break;
 		case "login_start":
 			void startLogin(ws, msg.provider, msg.method);
 			break;
@@ -221,6 +225,13 @@ const MIME: Record<string, string> = {
 
 const server = http.createServer((req, res) => {
 	const url = new URL(req.url ?? "/", "http://localhost");
+	if (url.pathname.startsWith("/photos/")) {
+		void webPhoto(url.pathname).then((photo) => {
+			if (!photo) res.writeHead(404).end();
+			else res.writeHead(200, { "content-type": photo.mimeType, "cache-control": "max-age=31536000" }).end(photo.data);
+		});
+		return;
+	}
 	let file = path.normalize(path.join(WEB_DIR, decodeURIComponent(url.pathname)));
 	if (!file.startsWith(WEB_DIR)) {
 		res.writeHead(403).end();

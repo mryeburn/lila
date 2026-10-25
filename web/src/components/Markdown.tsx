@@ -168,17 +168,23 @@ function SvgPicture({ code }: { code: string }) {
 }
 
 // Photos may only come from the trusted libraries the tutor's find_image tool
-// searches (server/images.ts), so an invented link can never show up.
+// searches (server/images.ts), or be a web photo LILA keeps a copy of, so an
+// invented link can never show up.
 const IMAGE_HOSTS = ["upload.wikimedia.org", "openi.nlm.nih.gov"];
+const WEB_PHOTO = /^\/photos\/[a-f0-9]{24}$/;
+
+function allowedPhoto(src: string): boolean {
+	if (WEB_PHOTO.test(src)) return true;
+	try {
+		const u = new URL(src);
+		return u.protocol === "https:" && IMAGE_HOSTS.includes(u.hostname);
+	} catch {
+		return false;
+	}
+}
 
 function Photo({ src, alt, title, onBroken }: { src?: string; alt?: string; title?: string; onBroken?: () => void }) {
-	let ok = false;
-	try {
-		const u = new URL(src ?? "");
-		ok = u.protocol === "https:" && IMAGE_HOSTS.includes(u.hostname);
-	} catch {
-		// Not a URL.
-	}
+	const ok = allowedPhoto(src ?? "");
 	const [failed, setFailed] = useState(false);
 	if (!ok || failed) return null;
 	// Spans, not <figure>: Markdown puts images inside paragraphs.

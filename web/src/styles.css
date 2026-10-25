@@ -1361,3 +1361,8 @@ button.option:not(:disabled):hover {
 		font-size: 16px;
 	}
 }
+.steps {
+	margin: 8px 0;
+	padding-left: 22px;
+	line-height: 1.6;
+}

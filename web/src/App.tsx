@@ -317,9 +317,12 @@ export function App() {
 		<div className={`app ${sidebarOpen ? "sidebar-open" : ""}`}>
 			<aside className="sidebar">
 				<div className="brand">
+					{/* The L in the box is the name's first letter, as on the home page. */}
 					<span className="logo">L</span>
 					<span className="brand-text">
-						<span className="brand-name">LILA</span>
+						<span className="brand-name" aria-label="LILA">
+							ILA
+						</span>
 						<span className="brand-full">
 							<b>L</b>ila <b>I</b>nteractive <b>L</b>earning <b>A</b>ssistant
 						</span>

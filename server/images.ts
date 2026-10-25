@@ -8,15 +8,25 @@
 // - Wikimedia Commons: freely licensed photos, illustrations and diagrams.
 // - Open-i (US National Library of Medicine): clinical images (X-rays, CT,
 //   MRI, ultrasound, clinical photos, microscopy) from open-access journals.
+// - Google Images, through SerpApi's free plan, once the learner has pasted a
+//   SerpApi key in Settings. LILA keeps a copy of each photo it shows and
+//   serves it from /photos/, so these photos also can't be invented.
 
+import { createHash } from "node:crypto";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { DATA_DIR, loadSettings } from "./config.ts";
 
 /** Hosts the page will load images from. Keep in sync with web/src/components/Markdown.tsx. */
 export const IMAGE_HOSTS = ["upload.wikimedia.org", "openi.nlm.nih.gov"];
 
+/** A shown image's address: from a trusted library, or a web photo LILA keeps a copy of. */
+export const IMAGE_URL = /(?:https:\/\/|\/photos\/)[^\s)"]+/g;
+
 const USER_AGENT = "LILA/1.0 (https://github.com/mryeburn/lila)";
-const MAX_RESULTS = 4;
+const MAX_RESULTS = 6;
 
 export interface Candidate {
 	url: string;
@@ -42,7 +52,7 @@ const Params = Type.Object({
 	source: Type.Optional(
 		Type.Union([Type.Literal("any"), Type.Literal("wikimedia"), Type.Literal("clinical")], {
 			description:
-				"'clinical' searches real medical images from journals (NLM Open-i), 'wikimedia' searches Wikimedia Commons, 'any' (default) searches both.",
+				"'clinical' searches real medical images from journals (NLM Open-i), 'wikimedia' searches Wikimedia Commons, 'any' (default) searches both and Google Images.",
 		}),
 	),
 	kind: Type.Optional(
@@ -57,6 +67,7 @@ export const IMAGE_GUIDELINES = [
 	"Use find_image when a real photo or scan would genuinely help: what a finding looks like on an X-ray, a skin lesion, an instrument, an anatomical specimen, a microscope slide. Prefer your own mermaid/svg drawings for processes, relationships and simple schematics.",
 	"Look at the returned images before choosing. Only use one that clearly shows what you will say it shows; if none fits, say nothing about it and draw a diagram instead, or skip the picture.",
 	"Embed the chosen image by copying its markdown line from the result exactly (the URL and the credit in quotes). Never type or edit an image URL yourself; images from anywhere else will not be shown.",
+	"If none of the results fits, search again with other words (the common name, a synonym, or adding 'photo' or 'clinical photo') before giving up. Never tell the learner you can't show a real photo or suggest they search for one themselves.",
 	"Give it a short, accurate caption as the alt text, point out what to look at in your text, and don't use more than one or two photos per section.",
 ];
 
@@ -65,7 +76,7 @@ export function createImageTool(canSeeImages: () => boolean): ToolDefinition<typ
 		name: "find_image",
 		label: "Image search",
 		description:
-			"Search trusted, openly licensed image libraries (images from the matching Wikipedia article; Wikimedia Commons; the US National Library of Medicine's Open-i clinical image collection) for a real photo, scan or illustration to show the learner. Returns up to four candidates, each with a ready-to-paste markdown line.",
+			"Search for a real photo, scan or illustration to show the learner: images from the matching Wikipedia article, Wikimedia Commons, the US National Library of Medicine's Open-i clinical image collection and, when set up, Google Images. Returns up to six candidates, each with a ready-to-paste markdown line.",
 		promptSnippet: "Use find_image to find a real photo, scan or illustration from a trusted library to show the learner.",
 		promptGuidelines: IMAGE_GUIDELINES,
 		parameters: Params,
@@ -101,7 +112,7 @@ export function createImageTool(canSeeImages: () => boolean): ToolDefinition<typ
 /**
  * Searches the libraries and returns candidates, best sources first:
  * images from the matching Wikipedia article (curated, captioned), then
- * Wikimedia Commons and Open-i search results, taking turns.
+ * Google Images, Open-i and Wikimedia Commons search results, taking turns.
  */
 export async function searchImages(
 	query: string,
@@ -115,18 +126,18 @@ export async function searchImages(
 	const wikipedia =
 		source !== "clinical" ? searchWikipedia(options.article || query, signal).catch(() => []) : Promise.resolve([]);
 	const searches: Promise<Candidate[]>[] = [];
+	if (source === "any") searches.push(searchWeb(query, signal).catch(() => []));
 	if (source !== "wikimedia") searches.push(searchOpenI(query, kind, signal).catch(() => []));
 	if (source !== "clinical") searches.push(searchCommons(query, signal).catch(() => []));
-	const [article, [a = [], b = []]] = await Promise.all([wikipedia, Promise.all(searches)]);
+	const [article, lists] = await Promise.all([wikipedia, Promise.all(searches)]);
 	const mixed: Candidate[] = [];
 	const add = (c: Candidate | undefined) => {
 		if (c && mixed.length < limit && !mixed.some((m) => m.url === c.url)) mixed.push(c);
 	};
 	// Leave room for at least a couple of search results after the article's images.
 	for (const c of article.slice(0, Math.max(1, limit - 2))) add(c);
-	for (let i = 0; i < Math.max(a.length, b.length); i++) {
-		add(a[i]);
-		add(b[i]);
+	for (let i = 0; i < Math.max(0, ...lists.map((l) => l.length)); i++) {
+		for (const l of lists) add(l[i]);
 	}
 	return mixed;
 }
@@ -286,6 +297,7 @@ export async function fetchThumb(url: string, signal?: AbortSignal): Promise<{ d
 }
 
 export function isAllowedImage(src: string): boolean {
+	if (WEB_PHOTO_PATH.test(src)) return true;
 	try {
 		const u = new URL(src);
 		return u.protocol === "https:" && IMAGE_HOSTS.includes(u.hostname);
@@ -307,4 +319,122 @@ function plain(html: unknown): string {
 		.replace(/&gt;/g, ">")
 		.replace(/\s+/g, " ")
 		.trim();
+}
+
+// Google Images through SerpApi. The free plan has 250 searches a month and
+// never charges; past that SerpApi refuses, and the search finds nothing.
+// Searches are kept for a month, so asking again costs nothing.
+const PHOTOS_DIR = path.join(DATA_DIR, "photos");
+const WEB_INDEX = path.join(PHOTOS_DIR, "index.json");
+const WEB_PHOTO_PATH = /^\/photos\/([a-f0-9]{24})$/;
+const SEARCH_KEEP_MS = 30 * 24 * 60 * 60 * 1000;
+const MAX_PHOTO_BYTES = 8_000_000;
+
+interface WebIndex {
+	/** Each photo's id, with the addresses to fetch it from. */
+	photos: Record<string, { original: string; thumbnail: string }>;
+	/** Recent searches and what they found. */
+	searches: Record<string, { at: number; found: Candidate[] }>;
+}
+
+let webIndex: WebIndex | undefined;
+function index(): WebIndex {
+	if (!webIndex) {
+		try {
+			webIndex = JSON.parse(fs.readFileSync(WEB_INDEX, "utf8")) as WebIndex;
+		} catch {
+			webIndex = { photos: {}, searches: {} };
+		}
+	}
+	return webIndex;
+}
+function saveIndex(): void {
+	const idx = index();
+	const now = Date.now();
+	for (const [q, s] of Object.entries(idx.searches)) if (now - s.at > SEARCH_KEEP_MS) delete idx.searches[q];
+	fs.mkdirSync(PHOTOS_DIR, { recursive: true });
+	fs.writeFileSync(WEB_INDEX, JSON.stringify(idx));
+}
+
+/** True once the learner has pasted a SerpApi key in Settings. */
+export function webPhotosOn(): boolean {
+	return !!loadSettings().photoSearchKey;
+}
+
+export async function searchWeb(query: string, signal?: AbortSignal): Promise<Candidate[]> {
+	const key = loadSettings().photoSearchKey;
+	if (!key) return [];
+	const q = query.trim().toLowerCase();
+	const kept = index().searches[q];
+	if (kept && Date.now() - kept.at < SEARCH_KEEP_MS) return kept.found;
+
+	const url = new URL("https://serpapi.com/search.json");
+	url.search = new URLSearchParams({ engine: "google_images", q: query, api_key: key, safe: "active" }).toString();
+	const data = await getJson(url.href, signal);
+	const out: Candidate[] = [];
+	for (const r of data?.images_results ?? []) {
+		if (out.length >= MAX_RESULTS) break;
+		const original = typeof r.original === "string" && r.original.startsWith("https://") ? r.original : "";
+		const thumbnail = typeof r.thumbnail === "string" && r.thumbnail.startsWith("https://") ? r.thumbnail : "";
+		if (!original && !thumbnail) continue;
+		if (r.is_product || (Number(r.original_width) > 0 && Number(r.original_width) < 200)) continue;
+		const id = createHash("sha256").update(original || thumbnail).digest("hex").slice(0, 24);
+		index().photos[id] = { original, thumbnail };
+		const site = plain(r.source) || hostOf(r.link) || "the web";
+		out.push({
+			url: `/photos/${id}`,
+			thumb: thumbnail || original,
+			title: plain(r.title).slice(0, 300),
+			credit: `${site}, found with Google Images`,
+			page: typeof r.link === "string" ? r.link : "",
+		});
+	}
+	index().searches[q] = { at: Date.now(), found: out };
+	saveIndex();
+	return out;
+}
+
+function hostOf(link: unknown): string {
+	try {
+		return new URL(String(link)).hostname.replace(/^www\./, "");
+	} catch {
+		return "";
+	}
+}
+
+/**
+ * The image for a page address like /photos/<id>: LILA's copy, fetched the
+ * first time it's shown. Undefined if it isn't one of LILA's web photos.
+ */
+export async function webPhoto(pathname: string): Promise<{ data: Buffer; mimeType: string } | undefined> {
+	const id = WEB_PHOTO_PATH.exec(pathname)?.[1];
+	const source = id ? index().photos[id] : undefined;
+	if (!id || !source) return undefined;
+	const file = path.join(PHOTOS_DIR, id);
+	try {
+		const kept = JSON.parse(fs.readFileSync(`${file}.json`, "utf8"));
+		return { data: fs.readFileSync(file), mimeType: kept.mimeType };
+	} catch {
+		// Not fetched yet.
+	}
+	for (const url of [source.original, source.thumbnail]) {
+		if (!url) continue;
+		try {
+			const res = await fetch(url, {
+				headers: { "user-agent": "Mozilla/5.0 (compatible; LILA/1.0)", accept: "image/*" },
+				signal: AbortSignal.timeout(20_000),
+			});
+			const mimeType = (res.headers.get("content-type") ?? "").split(";")[0].trim();
+			if (!res.ok || !/^image\/(jpeg|png|gif|webp)$/.test(mimeType)) continue;
+			const data = Buffer.from(await res.arrayBuffer());
+			if (data.length === 0 || data.length > MAX_PHOTO_BYTES) continue;
+			fs.mkdirSync(PHOTOS_DIR, { recursive: true });
+			fs.writeFileSync(file, data);
+			fs.writeFileSync(`${file}.json`, JSON.stringify({ mimeType, from: url }));
+			return { data, mimeType };
+		} catch {
+			// Try the next address.
+		}
+	}
+	return undefined;
 }

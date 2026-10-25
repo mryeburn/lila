@@ -11,7 +11,7 @@ import {
 import * as fs from "node:fs";
 import { type AppSettings, loadSettings, SESSIONS_DIR, saveSettings, WORKSPACE_DIR } from "./config.ts";
 import { buildLibrary, illustrate } from "./illustrator.ts";
-import { type Candidate, createImageTool } from "./images.ts";
+import { type Candidate, createImageTool, IMAGE_URL } from "./images.ts";
 import { asMessage, type Material, parseMessage } from "./materials.ts";
 import { BASE_PROMPT, buildTeachingPrompt } from "./prompt.ts";
 import {
@@ -35,7 +35,7 @@ const DEFAULT_MODELS: Array<[string, RegExp]> = [
 	["openrouter", /^anthropic\/claude-sonnet/],
 ];
 // A diagram, chart or photo in a tutor reply (text or quiz/question card).
-const VISUAL = /```(mermaid|svg)|!\[[^\]]*\]\(https:\/\//;
+const VISUAL = /```(mermaid|svg)|!\[[^\]]*\]\((https:\/\/|\/photos\/)/;
 // Hidden notes from the app to the tutor, appended to the learner's messages.
 /** Added, out of the learner's sight, to a question they asked, so the tutor answers it rather than quizzing them on it. */
 const ANSWER_NOTE =
@@ -137,7 +137,7 @@ class LessonPictures {
 
 	/** Every image address already shown in this lesson. */
 	usedImages(): string[] {
-		return [...this.byId.values()].flat().flatMap((p) => p.match(/https:\/\/[^\s)"]+/g) ?? []);
+		return [...this.byId.values()].flat().flatMap((p) => p.match(IMAGE_URL) ?? []);
 	}
 
 	/** The lesson's image library, gathered once (and again after a while if that found nothing). */
@@ -346,6 +346,7 @@ export class Tutor implements InteractionBroker {
 			lessonPath: this.session?.sessionFile ?? null,
 			lessonTitle: this.session?.sessionName ?? null,
 			error: this.lastError ?? null,
+			webPhotos: !!this.settings.photoSearchKey,
 		};
 	}
 
@@ -788,6 +789,13 @@ export class Tutor implements InteractionBroker {
 		saveSettings(this.settings);
 		this.lastModel = model;
 		if (this.session) await this.session.setModel(model);
+		await this.pushState();
+	}
+
+	/** Saves (or, when empty, removes) the SerpApi key for Google Images photos. */
+	async setPhotoKey(key: string): Promise<void> {
+		this.settings = { ...this.settings, photoSearchKey: key.trim() || undefined };
+		saveSettings(this.settings);
 		await this.pushState();
 	}
 
