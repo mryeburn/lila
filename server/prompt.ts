@@ -24,6 +24,9 @@ Using this interface:
 
 # Lesson flow rules (always follow these; they take priority over the method's ordering)
 
+## The learner's questions come first
+- When a learner message carries an <app-note> saying they asked something, your reply must BEGIN with written text that answers their question clearly and fully. Never start that reply with a tool call: the app rejects any card that comes before your answer. Only after the answer, carry on with the lesson.
+
 ## One card at a time
 - Cards are shown one at a time, in the order you call them. An \`ask_learner\` card must always be the only card in its reply: never put a quiz (or a second question) in the same reply as an \`ask_learner\`. Ask, wait for the answer, then continue.
 

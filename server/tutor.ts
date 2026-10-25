@@ -52,16 +52,14 @@ type Thinking = (typeof THINKING_LEVELS)[number];
 /**
  * True when the message before `at` is the learner asking something: a question
  * typed instead of a quiz answer or before one, a follow-up typed right after a
- * quiz answer, or any message with a question mark. With onlySure, only the
- * first two (and questions from a Questions box), never a guess from a "?".
+ * quiz answer, or any message with a question mark.
  */
-function learnerAsked(messages: any[], at: number, onlySure = false): boolean {
+function learnerAsked(messages: any[], at: number): boolean {
 	const prev = messages[at - 1];
 	if (prev?.role === "toolResult") return prev.details?.status === "paused" || !!prev.details?.skippedWith;
 	if (prev?.role !== "user") return false;
 	const raw = textOf(prev.content);
 	if (raw.includes(ANSWER_NOTE.trim())) return true;
-	if (onlySure) return false;
 	const text = raw.replace(APP_NOTE, "").trim();
 	if (!text || text === CONTINUE_TEXT || parseMessage(text)) return false;
 	const before = messages[at - 2];
@@ -251,12 +249,29 @@ export class Tutor implements InteractionBroker {
 	}
 
 	/**
-	 * The learner asked something and the tutor's reply opens with a card and no
-	 * answer. Sent back once: the next reply follows this refusal, not the question.
+	 * Something the learner asked that the tutor hasn't answered in writing yet.
+	 * Until it has, its cards are sent back (up to a few times, so a stubborn
+	 * model can't stall the lesson).
 	 */
-	skippedQuestion(toolCallId: string): boolean {
-		const { messages, at, text, firstPart } = this.textBefore(toolCallId);
-		return at > 0 && firstPart && text.trim().length < 20 && learnerAsked(messages, at, true);
+	private openQuestion: { text: string; refusals: number } | null = null;
+
+	unansweredQuestion(toolCallId: string): string | undefined {
+		// Not yet delivered to the tutor: those cards are held instead.
+		if (!this.openQuestion || this.holdCardsUntil) return undefined;
+		const msg = (this.session?.messages as any[] | undefined)?.find(
+			(m) => m.role === "assistant" && (m.content ?? []).some((b: any) => b.type === "toolCall" && b.id === toolCallId),
+		);
+		let written = "";
+		for (const block of msg?.content ?? []) {
+			if (block.type === "toolCall" && block.id === toolCallId) break;
+			if (block.type === "text") written += block.text;
+		}
+		if (written.trim().length >= 20 || this.openQuestion.refusals >= 3) {
+			this.openQuestion = null;
+			return undefined;
+		}
+		this.openQuestion.refusals++;
+		return this.openQuestion.text;
 	}
 
 	/** After a long teaching section, the lesson pauses for questions before the quiz. */
@@ -494,7 +509,10 @@ export class Tutor implements InteractionBroker {
 		if (this.pending.size > 0) {
 			for (const { interaction, resolve } of [...this.pending.values()]) {
 				if (interaction.kind === "graded") continue;
-				if (interaction.kind === "pause" || interaction.kind === "quiz") this.holdCardsUntil = "assistant";
+				if (interaction.kind === "pause" || interaction.kind === "quiz") {
+					this.holdCardsUntil = "assistant";
+					this.openQuestion = { text: cardText, refusals: 0 };
+				}
 				if (interaction.kind === "pause") resolve({ text: cardText });
 				else if (interaction.kind === "quiz") resolve({ skippedWith: cardText });
 				else if (interaction.mode === "text") resolve({ text: cardText });
@@ -510,6 +528,7 @@ export class Tutor implements InteractionBroker {
 			this.holdCardsUntil = "user";
 			asked = true;
 		}
+		if (asked) this.openQuestion = { text, refusals: 0 };
 		try {
 			if (session.isStreaming) {
 				await session.steer(text + (asked ? ANSWER_NOTE : "") + this.visualReminder(true));
@@ -793,6 +812,7 @@ export class Tutor implements InteractionBroker {
 			case "agent_settled":
 				this.busy = false;
 				this.holdCardsUntil = null;
+				this.openQuestion = null;
 				this.streamingText = null;
 				this.broadcast({ type: "transcript", items: this.transcript() });
 				this.broadcast({ type: "streaming", text: null });
@@ -827,6 +847,9 @@ export class Tutor implements InteractionBroker {
 			case "message_end":
 				if (event.type === "message_end" && (event as any).message?.role === "assistant") {
 					this.autoIllustrateMessage((event as any).message);
+					// A reply written after the question arrived, with real text: answered.
+					const written = ((event as any).message.content ?? []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("");
+					if (this.openQuestion && !this.holdCardsUntil && written.trim().length >= 20) this.openQuestion = null;
 				}
 				// Transcript first: the page swaps the streamed text for the saved
 				// message without the page briefly getting shorter (which would
