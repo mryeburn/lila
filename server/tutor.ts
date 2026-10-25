@@ -364,21 +364,65 @@ export class Tutor implements InteractionBroker {
 	}
 
 	/** An open-ended question the learner answered that the tutor hasn't given feedback on yet. */
-	private feedbackDue: { question: string; refusals: number } | null = null;
+	private feedbackDue: { question: string; answer: string; refusals: number } | null = null;
 
-	openAnswered(question: string): void {
-		this.feedbackDue = { question, refusals: 0 };
+	openAnswered(question: string, answer: string): void {
+		this.feedbackDue = { question, answer, refusals: 0 };
 	}
 
-	feedbackMissing(toolCallId: string): string | undefined {
-		if (!this.feedbackDue) return undefined;
+	/**
+	 * The tutor is told once to give feedback first. If it still goes straight
+	 * on (it did, four times in a row), LILA writes the feedback itself.
+	 */
+	feedbackMissing(toolCallId: string): { question: string; write: boolean } | undefined {
+		const due = this.feedbackDue;
+		if (!due) return undefined;
 		const { text } = this.textBefore(toolCallId);
-		if (text.trim().length >= FEEDBACK_LENGTH || this.feedbackDue.refusals >= 3) {
+		if (text.trim().length >= FEEDBACK_LENGTH) {
 			this.feedbackDue = null;
 			return undefined;
 		}
-		this.feedbackDue.refusals++;
-		return this.feedbackDue.question;
+		due.refusals++;
+		return { question: due.question, write: due.refusals > 1 };
+	}
+
+	async writeFeedback(signal: AbortSignal | undefined): Promise<string | undefined> {
+		const due = this.feedbackDue;
+		const model = this.session?.model;
+		this.feedbackDue = null;
+		if (!due || !model) return undefined;
+		// What the lesson taught, so the feedback matches it (the most recent part if it's long).
+		const taught = this.assistantTexts().join("\n\n").slice(-40_000);
+		try {
+			const reply = await this.runtime.completeSimple(
+				model,
+				{
+					systemPrompt:
+						"You are a friendly, expert tutor. Write feedback on the learner's answer in 3 to 6 short sentences or bullets: what they got right, anything important they missed, and any mistakes corrected. Base it on what the lesson taught. Plain markdown, no heading, no question at the end.",
+					messages: [
+						{
+							role: "user",
+							content: [
+								{
+									type: "text",
+									text: `The lesson so far:\n\n${taught}\n\n---\n\nQuestion: ${due.question}\nThe learner's answer: ${due.answer}`,
+								},
+							],
+							timestamp: Date.now(),
+						},
+					],
+				},
+				{ signal },
+			);
+			const text = reply.content
+				.filter((b): b is { type: "text"; text: string } => b.type === "text")
+				.map((b) => b.text)
+				.join("")
+				.trim();
+			return text || undefined;
+		} catch {
+			return undefined;
+		}
 	}
 
 	private plan(): Plan | undefined {
@@ -644,6 +688,12 @@ export class Tutor implements InteractionBroker {
 			const pictures = this.pictures.byId.get(item.id);
 			if (pictures) item.pictures = pictures;
 			if (this.pictures.drawing.has(item.id)) item.drawing = true;
+		}
+		// A card held back while LILA wrote feedback the tutor owed: show that feedback as the tutor's words.
+		for (const [i, item] of items.entries()) {
+			if (item.kind !== "quiz" && item.kind !== "ask") continue;
+			const result = item.result as any;
+			if (result?.status === "feedback" && result.feedback) items[i] = { kind: "assistant", id: item.id, text: result.feedback };
 		}
 		// A call that failed (bad arguments, a question that couldn't be shown)
 		// never reached the learner and the tutor asks again, so leave it out

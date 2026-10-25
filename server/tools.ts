@@ -6,7 +6,7 @@
 // Which choice is right, and the explanation, stay on the server until the
 // learner has answered.
 
-import type { ToolDefinition } from "./engine/conversation.ts";
+import type { ToolDefinition, ToolResult } from "./engine/conversation.ts";
 import { Type } from "typebox";
 
 export interface DisplayOption {
@@ -77,10 +77,15 @@ export interface InteractionBroker {
 	unansweredQuestion?(toolCallId: string): string | undefined;
 	/** A quiz question is about to be shown: a picture for its explanation can be started now. */
 	quizShown?(toolCallId: string, quiz: QuizAbout): void;
-	/** The learner's open-ended answer to this question still has no written feedback before this card. */
-	feedbackMissing?(toolCallId: string): string | undefined;
+	/**
+	 * The learner's open-ended answer still has no written feedback before
+	 * this card. `write`: the tutor was already told once, so LILA writes it.
+	 */
+	feedbackMissing?(toolCallId: string): { question: string; write: boolean } | undefined;
+	/** Writes the feedback the tutor still owes on an open-ended answer (see feedbackMissing). */
+	writeFeedback?(signal: AbortSignal | undefined): Promise<string | undefined>;
 	/** The learner answered an open-ended question; the tutor owes them feedback on it. */
-	openAnswered?(question: string): void;
+	openAnswered?(question: string, answer: string): void;
 	/**
 	 * Why this card is too early (the tutor is wrapping up with plan sections
 	 * still to teach), else undefined.
@@ -104,7 +109,26 @@ export interface QuizAbout {
 const unanswered = (asked: string) =>
 	`Not shown: the learner asked "${asked}" and you haven't answered it. Your next reply must START with a clear, full written answer to that question, before any tool call. Only after that, ask this again.`;
 const noFeedback = (question: string) =>
-	`Not shown: the learner answered your question "${question}" and you haven't given feedback on their answer. In this same reply, first write your feedback as normal text: what they got right, anything important they missed, and any mistakes corrected. Then call ask_learner again for this question. Never type a question as plain text for the learner to answer.`;
+	`Not shown: the learner answered your question "${question}" and you haven't given feedback on their answer. Your next message must be text only, with no tool call: your feedback on their answer (what they got right, anything important they missed, and any mistakes corrected). Only after that, ask this question again. Never type a question as plain text for the learner to answer.`;
+const wroteFeedback = (feedback: string) =>
+	`Not shown yet: the learner still had no feedback on their last answer, so LILA wrote it and showed it to them:\n\n${feedback}\n\nDon't repeat it. Now ask this question again.`;
+
+/** What to do when an open-ended answer is still owed feedback: send the card back, or show LILA's own feedback. */
+async function owedFeedback(
+	broker: InteractionBroker,
+	toolCallId: string,
+	question: string,
+	signal: AbortSignal | undefined,
+): Promise<ToolResult<any> | undefined> {
+	const owed = broker.feedbackMissing?.(toolCallId);
+	if (!owed) return undefined;
+	if (owed.write) {
+		const feedback = await broker.writeFeedback?.(signal);
+		if (feedback) return textResult(wroteFeedback(feedback), { status: "feedback", feedback, question });
+		return undefined;
+	}
+	return textResult(noFeedback(owed.question), { status: "unanswered", question });
+}
 const HELD =
 	"Not shown: the learner wrote something before this came up. Respond to what they wrote first, then ask this again if it still fits.";
 
@@ -205,8 +229,8 @@ export function createQuizTool(broker: InteractionBroker): ToolDefinition<typeof
 			if (broker.learnerWaiting?.()) return textResult(HELD, { status: "held", question });
 			const open = broker.unansweredQuestion?.(toolCallId);
 			if (open) return textResult(unanswered(open), { status: "unanswered", question });
-			const owed = broker.feedbackMissing?.(toolCallId);
-			if (owed) return textResult(noFeedback(owed), { status: "unanswered", question });
+			const owed = await owedFeedback(broker, toolCallId, question, signal);
+			if (owed) return owed;
 			const early = broker.sectionsLeft?.(toolCallId, question, false);
 			if (early) return textResult(early, { status: "unanswered", question });
 			const teaching = broker.quizWhileTeaching?.(toolCallId);
@@ -305,8 +329,8 @@ export function createAskTool(broker: InteractionBroker): ToolDefinition<typeof 
 			if (broker.learnerWaiting?.()) return textResult(HELD, { status: "held", question, mode });
 			const open = broker.unansweredQuestion?.(toolCallId);
 			if (open) return textResult(unanswered(open), { status: "unanswered", question, mode });
-			const owed = broker.feedbackMissing?.(toolCallId);
-			if (owed) return textResult(noFeedback(owed), { status: "unanswered", question, mode });
+			const owed = await owedFeedback(broker, toolCallId, question, signal);
+			if (owed) return owed;
 			const early = broker.sectionsLeft?.(toolCallId, question, mode === "text");
 			if (early) return textResult(early, { status: "unanswered", question, mode });
 			const answer = await broker.request<AskAnswer>(
@@ -332,7 +356,7 @@ export function createAskTool(broker: InteractionBroker): ToolDefinition<typeof 
 				: `Question: ${question}\nThe learner sent an empty answer.`;
 			// An answer in their own words gets feedback before anything else.
 			if (mode === "text" && said.length) {
-				broker.openAnswered?.(question);
+				broker.openAnswered?.(question, said.join("; "));
 				text += "\nBefore asking anything else, give written feedback on this answer: what they got right, anything important they missed, and any mistakes corrected.";
 			}
 			return textResult(text, { status: "answered", question, context: details, mode, options, answers });
