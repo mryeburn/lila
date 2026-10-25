@@ -44,6 +44,8 @@ const APP_NOTE = /\s*<app-note>[\s\S]*?<\/app-note>\s*$/;
 
 // Teaching text at least this long, with no picture, gets one from the app.
 const MIN_SECTION_LENGTH = 400;
+/** Written feedback on an open-ended answer is at least this long. */
+const FEEDBACK_LENGTH = 80;
 /** Outcomes of a quiz or question card the learner actually saw. */
 const SHOWN = ["answered", "cancelled", "paused"];
 /** What the page sends when the learner has no questions after a section. */
@@ -71,6 +73,41 @@ export function withoutPlan(text: string): string {
 	let end = lines.findIndex((line, i) => i > start && heading(line));
 	if (end < 0) end = lines.length;
 	return [...lines.slice(0, start), ...lines.slice(end)].join("\n");
+}
+
+const HEADING = /^\s*(#{1,6}\s|\*\*[^*]+\*\*\s*$)/;
+const SECTION_HEADING = /^\s*(?:#{1,6}\s*|\*\*)\s*Section\s+(\d+)\b/i;
+const WRAP_UP_HEADING = /^\s*(?:#{1,6}\s*|\*\*)\s*(Final quiz|Summary|What to learn next)/im;
+
+export interface Plan {
+	/** The plan's section names, in order. */
+	sections: string[];
+	/** Section numbers with their own "Section N" heading since the plan. */
+	taught: Set<number>;
+}
+
+/** The lesson's latest learning plan, and which of its sections have been taught. */
+export function findPlan(texts: string[]): Plan | undefined {
+	let plan: Plan | undefined;
+	for (const text of texts) {
+		const lines = text.split("\n");
+		const start = lines.findIndex((line) => HEADING.test(line) && /learning plan/i.test(line));
+		if (start >= 0) {
+			const sections: string[] = [];
+			for (const line of lines.slice(start + 1)) {
+				if (HEADING.test(line)) break;
+				const item = /^\s*\d+[.)]\s+(.+)/.exec(line);
+				if (item) sections.push(item[1].replace(/\*\*/g, "").trim());
+			}
+			if (sections.length > 0) plan = { sections, taught: new Set() };
+		}
+		if (!plan) continue;
+		for (const line of lines.slice(start + 1)) {
+			const n = Number(SECTION_HEADING.exec(line)?.[1]);
+			if (n) plan.taught.add(n);
+		}
+	}
+	return plan;
 }
 
 function learnerAsked(messages: any[], at: number): boolean {
@@ -315,6 +352,63 @@ export class Tutor implements InteractionBroker {
 		return this.openQuestion.text;
 	}
 
+	/** An open-ended question the learner answered that the tutor hasn't given feedback on yet. */
+	private feedbackDue: { question: string; refusals: number } | null = null;
+
+	openAnswered(question: string): void {
+		this.feedbackDue = { question, refusals: 0 };
+	}
+
+	feedbackMissing(toolCallId: string): string | undefined {
+		if (!this.feedbackDue) return undefined;
+		const { text } = this.textBefore(toolCallId);
+		if (text.trim().length >= FEEDBACK_LENGTH || this.feedbackDue.refusals >= 3) {
+			this.feedbackDue = null;
+			return undefined;
+		}
+		this.feedbackDue.refusals++;
+		return this.feedbackDue.question;
+	}
+
+	private plan(): Plan | undefined {
+		const texts = ((this.session?.messages ?? []) as any[])
+			.filter((m) => m.role === "assistant")
+			.map((m) => textOf(m.content));
+		return findPlan(texts);
+	}
+
+	/** Sections of the plan still to teach, as "Section 3: Name". */
+	private untaught(plan: Plan): string[] {
+		return plan.sections.map((name, i) => `Section ${i + 1}: ${name}`).filter((_, i) => !plan.taught.has(i + 1));
+	}
+
+	/** How many times this lesson's wrap-up was sent back for sections still to teach. */
+	private wrapUpRefusals = 0;
+
+	sectionsLeft(toolCallId: string, question: string, openEnded: boolean): string | undefined {
+		const plan = this.plan();
+		if (!plan || this.wrapUpRefusals >= 3) return undefined;
+		const left = this.untaught(plan);
+		if (left.length === 0) return undefined;
+		// "In your own words" questions belong to the Final quiz; so does anything after a wrap-up heading.
+		const { messages, at, text } = this.textBefore(toolCallId);
+		const wrapping =
+			(openEnded && /own words/i.test(question)) ||
+			WRAP_UP_HEADING.test(text) ||
+			WRAP_UP_HEADING.test(textOf(messages[at]?.content));
+		if (!wrapping) return undefined;
+		this.wrapUpRefusals++;
+		return `Not shown: you haven't taught every section of your plan yet. Still to teach: ${left.join("; ")}. Teach ${left[0].replace(/:.*/, "")} now, under the heading "${left[0]}", with its own check question, then the rest in order. Only after the last section, start the Final quiz.`;
+	}
+
+	planProgress(): string | undefined {
+		const plan = this.plan();
+		if (!plan) return undefined;
+		const left = this.untaught(plan);
+		if (left.length === 0) return undefined;
+		return `Plan progress (from the LILA app): ${plan.taught.size} of ${plan.sections.length} sections taught. Still to teach, in order: ${left.join("; ")}. Don't start the Final quiz until all are taught.`;
+	}
+
 	/** After a long teaching section, the lesson pauses for questions before the quiz. */
 	async beforeQuiz(toolCallId: string, signal: AbortSignal | undefined): Promise<string | undefined> {
 		const { messages, at, text, firstPart } = this.textBefore(toolCallId);
@@ -456,6 +550,8 @@ export class Tutor implements InteractionBroker {
 		this.dispose();
 		this.finishedResults.clear();
 		this.lastQuizHadPicture = false;
+		this.feedbackDue = null;
+		this.wrapUpRefusals = 0;
 		this.lastError = undefined;
 
 		// If the provider list is briefly unavailable (for example while a sign-in
@@ -892,6 +988,7 @@ export class Tutor implements InteractionBroker {
 				this.busy = false;
 				this.holdCardsUntil = null;
 				this.openQuestion = null;
+				this.feedbackDue = null;
 				this.streamingText = null;
 				this.broadcast({ type: "transcript", items: this.transcript() });
 				this.broadcast({ type: "streaming", text: null });
@@ -929,6 +1026,7 @@ export class Tutor implements InteractionBroker {
 					// A reply written after the question arrived, with real text: answered.
 					const written = ((event as any).message.content ?? []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("");
 					if (this.openQuestion && !this.holdCardsUntil && written.trim().length >= 20) this.openQuestion = null;
+					if (this.feedbackDue && written.trim().length >= FEEDBACK_LENGTH) this.feedbackDue = null;
 				}
 				// Transcript first: the page swaps the streamed text for the saved
 				// message without the page briefly getting shorter (which would
