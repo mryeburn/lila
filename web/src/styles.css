@@ -14,6 +14,10 @@
 	--wrong-soft: #fdecec;
 	--warn-soft: #fff6e0;
 	--card-tint: #f5f4ff;
+	--quiz-tint: #eef8f6;
+	--part: #0f766e;
+	--part-soft: #dcf3ef;
+	--divider: #b9d9d3;
 	--field-border: #bdb9cc;
 	--shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 4px 16px rgb(0 0 0 / 0.04);
 	--radius: 14px;
@@ -39,6 +43,10 @@
 		--wrong-soft: #3a1c1c;
 		--warn-soft: #3a3220;
 		--card-tint: #23223a;
+		--quiz-tint: #1b2b29;
+		--part: #5eead4;
+		--part-soft: #173431;
+		--divider: #2f4f4a;
 		--field-border: #56556c;
 		--shadow: none;
 		color-scheme: dark;
@@ -1393,4 +1401,36 @@ button.option:not(:disabled):hover {
 	border: 0;
 	border-radius: 10px;
 	background: #000;
+}
+
+/* ── Lesson parts ────────────────────────────────────────────────────────── */
+
+/* A dashed line with the part's name in the middle ("Your learning plan", "Section 2: …"). */
+.part-divider {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	margin: 28px 0 18px;
+}
+.part-divider::before,
+.part-divider::after {
+	content: "";
+	flex: 1;
+	border-top: 2px dashed var(--divider);
+}
+.part-divider span {
+	max-width: 75%;
+	padding: 4px 14px;
+	border-radius: 999px;
+	background: var(--part-soft);
+	color: var(--part);
+	font-family: var(--ui);
+	font-size: 13px;
+	font-weight: 700;
+	text-align: center;
+}
+/* Pre-test and final quiz questions: a soft turquoise, so quizzes stand apart from teaching. */
+.phase-quiz .card,
+.phase-quiz .card.pending {
+	background: var(--quiz-tint);
 }
