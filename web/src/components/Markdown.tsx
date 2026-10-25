@@ -183,22 +183,45 @@ function allowedPhoto(src: string): boolean {
 	}
 }
 
+/**
+ * Other addresses for the same Wikimedia picture, tried in turn when one
+ * won't load: without the tracking part, then a standard-size thumbnail.
+ */
+function photoFallbacks(src: string): string[] {
+	const out = [src];
+	try {
+		const u = new URL(src);
+		if (u.hostname !== "upload.wikimedia.org") return out;
+		const plain = `${u.origin}${u.pathname}`;
+		out.push(plain);
+		const m = /^\/wikipedia\/commons\/(\w)\/(\w\w)\/([^/]+)$/.exec(u.pathname);
+		if (m) out.push(`${u.origin}/wikipedia/commons/thumb/${m[1]}/${m[2]}/${m[3]}/400px-${m[3]}${/\.svg$/i.test(m[3]) ? ".png" : ""}`);
+	} catch {
+		// Not a URL: nothing else to try.
+	}
+	return [...new Set(out)];
+}
+
 function Photo({ src, alt, title, onBroken }: { src?: string; alt?: string; title?: string; onBroken?: () => void }) {
 	const ok = allowedPhoto(src ?? "");
-	const [failed, setFailed] = useState(false);
-	if (!ok || failed) return null;
+	const [attempt, setAttempt] = useState(0);
+	if (!ok) return null;
+	const tries = photoFallbacks(src ?? "");
+	// None of them loaded: leave an empty marker, so the styles can also hide
+	// the tutor's description line under the picture.
+	if (attempt >= tries.length) return <span className="photo-failed" />;
 	// Spans, not <figure>: Markdown puts images inside paragraphs.
 	return (
 		<span className="photo">
 			<a href={src} target="_blank" rel="noreferrer noopener" title="Open full size">
 				<img
-					src={src}
+					src={tries[attempt]}
 					alt={alt ?? ""}
 					loading="lazy"
 					referrerPolicy="no-referrer"
 					onError={() => {
-						setFailed(true);
-						onBroken?.();
+						if (attempt + 1 >= tries.length) onBroken?.();
+						setAttempt(attempt + 1);
 					}}
 				/>
 			</a>

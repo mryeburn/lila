@@ -48,6 +48,8 @@ The same command works on other Linux computers (Debian or Ubuntu based).
 
 LILA opens in your browser at <http://127.0.0.1:4848>, and Settings opens automatically the first time. Connect an AI provider, pick a model, close Settings, and type what you want to learn.
 
+**Photos and videos:** LILA then asks you for a free [SerpApi](https://serpapi.com/users/sign_up) key, which lets your tutor show you photos from Google Images and short YouTube clips. It's free (250 searches a month, no credit card). You can also add it later in **Settings** › **Photos and videos**.
+
 To update to the newest version, open **Settings** and click **Update now** when an update is available (or run the install command again).
 
 LILA keeps running quietly in the background after you close the browser tab, so the icon opens it instantly next time. Restarting the computer stops it.

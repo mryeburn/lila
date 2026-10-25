@@ -392,7 +392,7 @@ export class Conversation {
 			try {
 				const args = validateToolArguments(
 					{ name: tool.name, description: tool.description, parameters: tool.parameters },
-					call,
+					recoverArguments(call),
 				);
 				result = await tool.execute(call.id, args, signal);
 			} catch (err) {
@@ -446,6 +446,46 @@ interface Prepared {
 	/** Whether the whole reply was written ahead. */
 	finished: boolean;
 	done: Promise<void>;
+}
+
+/**
+ * Models sometimes send a tool's arguments followed by stray text (an extra
+ * brace, or a second copy), which isn't valid JSON. When the text starts with
+ * one complete JSON object, use that object.
+ */
+function recoverArguments(call: ToolCall): ToolCall {
+	const error = (call as ToolCall & { argumentsError?: string }).argumentsError;
+	const marker = "Received arguments:\n";
+	const at = error?.indexOf(marker) ?? -1;
+	if (!error || at < 0) return call;
+	const text = error.slice(at + marker.length).trimStart();
+	const end = firstObjectEnd(text);
+	if (end < 0) return call;
+	try {
+		const parsed = JSON.parse(text.slice(0, end));
+		if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return call;
+		const { argumentsError: _, ...rest } = call as ToolCall & { argumentsError?: string };
+		return { ...rest, arguments: parsed };
+	} catch {
+		return call;
+	}
+}
+
+/** Where the JSON object at the start of `text` ends, or -1. */
+function firstObjectEnd(text: string): number {
+	if (text[0] !== "{") return -1;
+	let depth = 0;
+	let inString = false;
+	for (let i = 0; i < text.length; i++) {
+		const c = text[i];
+		if (inString) {
+			if (c === "\\") i++;
+			else if (c === '"') inString = false;
+		} else if (c === '"') inString = true;
+		else if (c === "{") depth++;
+		else if (c === "}" && --depth === 0) return i + 1;
+	}
+	return -1;
 }
 
 function userMessage(text: string): UserMessage {

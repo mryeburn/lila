@@ -9,8 +9,10 @@ import { Type } from "typebox";
 import { loadSettings } from "./config.ts";
 import { getJson } from "./images.ts";
 
-/** Most clips in one lesson: videos stay a rare treat, not the main course. */
+/** Most clips in one lesson: videos stay a treat, not the main course. */
 export const MAX_CLIPS = 2;
+/** While LILA is being tested: every lesson shows at least one clip. Set to false to make clips optional again. */
+export const CLIP_EVERY_LESSON = true;
 /** Videos to read transcripts of per search (each costs one SerpApi search). */
 const CANDIDATES = 2;
 /** Longest video worth searching for a clip, in seconds. */
@@ -27,9 +29,9 @@ const Params = Type.Object({
 });
 
 export const VIDEO_GUIDELINES = [
-	`Show one clip in most lessons, in the section where a moving picture helps most: a process, a technique, how something moves, forms or sounds, or real footage of an event. Never more than ${MAX_CLIPS} per lesson. Never in the pre-test or the Final quiz.`,
+	`Show one clip in ${CLIP_EVERY_LESSON ? "every lesson" : "most lessons"}, in the section where a moving picture helps most: a process, a technique, how something moves, forms or sounds, or real footage of an event. Never more than ${MAX_CLIPS} per lesson. Never in the pre-test or the Final quiz.`,
 	"Search words work best short and specific, often with 'animation' or 'demonstration'.",
-	"You get the top videos' transcripts with timings. Pick one stretch of 15 to 40 seconds where the narration shows exactly your point. If no stretch fits, skip the video and use a picture instead; never show a long video.",
+	`You get the top videos' transcripts with timings. Pick one stretch of 15 to 40 seconds where the narration shows exactly your point. If no stretch fits, ${CLIP_EVERY_LESSON ? "search again with other words (once or twice), and only then" : ""} skip the video and use a picture instead; never show a long video.`,
 	"Embed it by writing the ```youtube block exactly as the result says, right where you talk about it, then one short line in italics on what to watch for.",
 ];
 
