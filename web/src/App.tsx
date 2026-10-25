@@ -4,6 +4,7 @@ import type { TranscriptItem } from "../../server/protocol.ts";
 import { AddResource, DropBox, isDroppable, sendDropped } from "./components/AddResource.tsx";
 import { AskCard, AskResult, QuestionsInvite, QuizCard, QuizResult } from "./components/Cards.tsx";
 import { Markdown } from "./components/Markdown.tsx";
+import { PartDivider, TutorText } from "./components/Parts.tsx";
 import { Settings } from "./components/Settings.tsx";
 import { type TutorStore, useTutor } from "./useTutor.ts";
 
@@ -56,15 +57,15 @@ function Pictures({
 
 const START_QUIZ: Record<QuizPhase, { text: string; label: string }> = {
 	"pre-test": {
-		text: "If you have a question, type it in here. Otherwise, start the pre-test.",
+		text: "Any questions? Type your question here or start the pre-test.",
 		label: "Start the pre-test →",
 	},
 	lesson: {
-		text: "If you have a question about this section, type it in here. Otherwise, start the quiz.",
+		text: "Any questions about this section? Type your question here or start the quiz.",
 		label: "Start the quiz →",
 	},
 	final: {
-		text: "If you have a question about the lesson, type it in here. Otherwise, start the final quiz.",
+		text: "Any questions about the lesson? Type your question here or start the final quiz.",
 		label: "Start the final quiz →",
 	},
 };
@@ -118,7 +119,7 @@ function Item({
 		case "assistant":
 			return (
 				<div className="msg tutor">
-					<Markdown text={item.text} />
+					<TutorText text={item.text} />
 					<Pictures
 						id={item.id}
 						pictures={item.pictures}
@@ -239,7 +240,6 @@ export function App() {
 
 	const busy = state?.busy ?? false;
 	const needsSetup = state !== null && !state.model;
-	const waitingOnCard = Object.values(store.interactions).some((i) => i.kind !== "graded");
 
 	// First visit with no AI connected: open settings straight away. Only once
 	// per visit, so starting a new lesson never brings it up again.
@@ -329,6 +329,10 @@ export function App() {
 		Object.keys(store.interactions).length === 0 &&
 		last?.kind === "assistant" &&
 		turnText(items).trim().length >= MIN_SECTION_TEXT;
+	const pretestStart = items.findIndex((item, i) => item.kind === "quiz" && phases[i] === "pre-test");
+	// A card with its own typing box is on screen: hide the bottom box, so there's one place to type.
+	const cardWaiting =
+		inviteQuestions || items.some((item) => (item.kind === "quiz" || item.kind === "ask") && store.interactions[item.id]);
 	const lastIsStreamingDuplicate = streaming !== null && last?.kind === "assistant" && last.text === streaming;
 
 	return (
@@ -503,24 +507,29 @@ export function App() {
 								</div>
 							</div>
 						)}
-						{items.map((item, i) => (
-							<Item
-								key={item.kind === "quiz" || item.kind === "ask" ? item.id : `${item.kind}-${i}`}
-								item={item}
-								store={store}
-								latestCard={item === latestCard}
-								phase={phases[i]}
-							/>
-						))}
+						{items.map((item, i) => {
+							const key = item.kind === "quiz" || item.kind === "ask" ? item.id : `${item.kind}-${i}`;
+							const card = (
+								<Item key={key} item={item} store={store} latestCard={item === latestCard} phase={phases[i]} />
+							);
+							// Pre-test and final quiz questions get their own tint; teaching stays white.
+							if (item.kind !== "quiz" || phases[i] === "lesson") return card;
+							return (
+								<div key={key} className="phase-quiz">
+									{i === pretestStart && <PartDivider label="Pre-test" />}
+									{card}
+								</div>
+							);
+						})}
 						{streaming !== null && streaming.trim() !== "" && !lastIsStreamingDuplicate && (
 							<div className="msg tutor">
-								<Markdown text={streaming} streaming />
+								<TutorText text={streaming} streaming />
 							</div>
 						)}
 						{inviteQuestions && (
 							<QuestionsInvite
 								key={last.id}
-								text="If you have a question about this section, type it in here. Otherwise, continue the lesson."
+								text="Any questions about this section? Type your question here or continue the lesson."
 								continueLabel="Continue the lesson →"
 								onContinue={() => submit("No questions, please continue.")}
 								onAsk={(text) => submit(text, true)}
@@ -548,43 +557,39 @@ export function App() {
 						</button>
 					</div>
 				)}
-				<form
-					className="composer"
-					onSubmit={(e) => {
-						e.preventDefault();
-						submit();
-					}}
-				>
-					<AddResource store={store} />
-					<textarea
-						ref={inputRef}
-						value={draft}
-						onChange={(e) => setDraft(e.target.value)}
-						onKeyDown={(e) => {
-							if (e.key === "Enter" && !e.shiftKey) {
-								e.preventDefault();
-								submit();
-							}
+				{!cardWaiting && (
+					<form
+						className="composer"
+						onSubmit={(e) => {
+							e.preventDefault();
+							submit();
 						}}
-						rows={1}
-						placeholder={
-							waitingOnCard
-								? "Answer the card above, or type here to say something else…"
-								: items.length === 0
-									? "Type a topic you want to learn…"
-									: "Reply to your tutor…"
-						}
-					/>
-					{busy ? (
-						<button type="button" className="secondary" onClick={() => send({ type: "abort" })}>
-							Stop
-						</button>
-					) : (
-						<button type="submit" className="primary" disabled={!draft.trim()}>
-							Send
-						</button>
-					)}
-				</form>
+					>
+						<AddResource store={store} />
+						<textarea
+							ref={inputRef}
+							value={draft}
+							onChange={(e) => setDraft(e.target.value)}
+							onKeyDown={(e) => {
+								if (e.key === "Enter" && !e.shiftKey) {
+									e.preventDefault();
+									submit();
+								}
+							}}
+							rows={1}
+							placeholder={items.length === 0 ? "Type a topic you want to learn…" : "Reply to your tutor…"}
+						/>
+						{busy ? (
+							<button type="button" className="secondary" onClick={() => send({ type: "abort" })}>
+								Stop
+							</button>
+						) : (
+							<button type="submit" className="primary" disabled={!draft.trim()}>
+								Send
+							</button>
+						)}
+					</form>
+				)}
 			</main>
 
 			{settingsOpen && <Settings store={store} onClose={() => setSettingsOpen(false)} />}
