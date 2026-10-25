@@ -19,7 +19,7 @@ export type TranscriptItem =
 			/** True while the app is making a picture for it. */
 			drawing?: boolean;
 	  }
-	| { kind: "error"; text: string }
+	| { kind: "error"; text: string; /** The lesson can carry on from here with Try again. */ retry?: boolean }
 	/** The learner's own learning material (a file or web page), shown compactly. */
 	| { kind: "resource"; name: string; source: string; chars: number; truncated: boolean }
 	| {
@@ -44,6 +44,8 @@ export interface TutorState {
 	error: string | null;
 	/** Photos from Google Images are set up. */
 	webPhotos: boolean;
+	/** Set while LILA waits to try a busy AI service again. */
+	retrying: string | null;
 }
 
 export interface LessonSummary {
@@ -101,6 +103,7 @@ export type ClientMessage =
 	| { type: "prompt"; text: string; /** Typed into a "Questions?" box. */ question?: boolean }
 	| { type: "answer"; id: string; answer: unknown }
 	| { type: "abort" }
+	| { type: "retry" }
 	| { type: "new_lesson" }
 	| { type: "open_lesson"; path: string }
 	| { type: "export_lesson" }

@@ -23,7 +23,16 @@ function Header({ label, question, details }: { label: string; question: string;
 
 // ── Quiz ─────────────────────────────────────────────────────────────────────
 
-export function QuizCard({ quiz, onAnswer }: { quiz: Quiz; onAnswer: (answer: QuizAnswer) => void }) {
+export function QuizCard({
+	quiz,
+	label = "Quiz",
+	onAnswer,
+}: {
+	quiz: Quiz;
+	/** Pre-test, Quiz or Final quiz. */
+	label?: string;
+	onAnswer: (answer: QuizAnswer) => void;
+}) {
 	const [selected, setSelected] = useState<number[]>([]);
 	const [note, setNote] = useState("");
 	const [showNote, setShowNote] = useState(false);
@@ -42,7 +51,7 @@ export function QuizCard({ quiz, onAnswer }: { quiz: Quiz; onAnswer: (answer: Qu
 
 	return (
 		<div className="card quiz-card pending">
-			<Header label={quiz.multiSelect ? "Quiz · pick all that apply" : "Quiz"} question={quiz.question} details={quiz.details} />
+			<Header label={quiz.multiSelect ? `${label} · pick all that apply` : label} question={quiz.question} details={quiz.details} />
 			<div className="options" role={quiz.multiSelect ? "group" : "radiogroup"}>
 				{quiz.options.map((o) => (
 					<button
@@ -97,6 +106,7 @@ export function QuizCard({ quiz, onAnswer }: { quiz: Quiz; onAnswer: (answer: Qu
 }
 
 export function QuizResult({
+	label = "Quiz",
 	question,
 	details,
 	result,
@@ -104,6 +114,8 @@ export function QuizResult({
 	onAsk,
 	pictures,
 }: {
+	/** Pre-test, Quiz or Final quiz. */
+	label?: string;
 	question: string;
 	details?: string;
 	result: any;
@@ -126,7 +138,7 @@ export function QuizResult({
 	if (result.status !== "answered") {
 		return (
 			<div className="card quiz-card muted">
-				<Header label="Quiz" question={question} details={details} />
+				<Header label={label} question={question} details={details} />
 				<p className="card-status">{result.status === "cancelled" ? "Skipped" : result.message}</p>
 				{result.skippedWith && <div className="your-note">You wrote: {result.skippedWith}</div>}
 			</div>
@@ -137,7 +149,7 @@ export function QuizResult({
 	const verdict = result.dontKnow ? "dontknow" : result.correct ? "right" : "wrong";
 	return (
 		<div className={`card quiz-card answered ${verdict}`}>
-			<Header label="Quiz" question={question} details={details} />
+			<Header label={label} question={question} details={details} />
 			<div className="options">
 				{(result.options ?? []).map((o: any) => {
 					const isKey = correct.has(o.index);

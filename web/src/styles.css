@@ -461,6 +461,19 @@ a {
 	border-radius: 10px;
 	font-size: 14px;
 }
+.error-msg p {
+	margin: 0;
+}
+.error-msg .primary {
+	margin-top: 10px;
+}
+.retry-msg {
+	background: var(--accent-soft, #eef2ff);
+	color: var(--muted, #6b7280);
+	padding: 10px 14px;
+	border-radius: 10px;
+	font-size: 14px;
+}
 .inline-code {
 	font-family: ui-monospace, "SF Mono", Menlo, monospace;
 	font-size: 0.85em;

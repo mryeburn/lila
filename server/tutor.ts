@@ -6,6 +6,7 @@ import {
 	getAgentDir,
 	type ModelRuntime,
 	SessionManager,
+	SettingsManager,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
@@ -13,6 +14,7 @@ import { type AppSettings, loadSettings, SESSIONS_DIR, saveSettings, WORKSPACE_D
 import { buildLibrary, illustrate } from "./illustrator.ts";
 import { type Candidate, createImageTool, IMAGE_URL } from "./images.ts";
 import { asMessage, type Material, parseMessage } from "./materials.ts";
+import { QUIZ_LABEL, quizPhases } from "./phases.ts";
 import { BASE_PROMPT, buildTeachingPrompt } from "./prompt.ts";
 import {
 	ASK_TOOL,
@@ -44,6 +46,8 @@ const APP_NOTE = /\s*<app-note>[\s\S]*?<\/app-note>\s*$/;
 
 // Teaching text at least this long, with no picture, gets one from the app.
 const MIN_SECTION_LENGTH = 400;
+/** After this many pre-test answers, the tutor is told to move on to the plan. */
+const PRETEST_ENOUGH = 5;
 /** Written feedback on an open-ended answer is at least this long. */
 const FEEDBACK_LENGTH = 80;
 /** Outcomes of a quiz or question card the learner actually saw. */
@@ -108,6 +112,17 @@ export function findPlan(texts: string[]): Plan | undefined {
 		}
 	}
 	return plan;
+}
+
+/** An AI service error, in words the learner can act on. */
+export function friendlyError(raw: string): string {
+	if (/overloaded|server_busy|too many requests|rate.?limit|capacity|(?<![0-9])(429|500|502|503|504|529)(?![0-9])/i.test(raw)) {
+		return "Claude's servers are too busy right now, so the lesson paused. Nothing is lost. Wait a minute, then click Try again.";
+	}
+	if (/fetch failed|network|ENOTFOUND|EAI_AGAIN|connection|timed? ?out|socket/i.test(raw)) {
+		return "LILA couldn't reach the AI service. Check that this computer is online, then click Try again.";
+	}
+	return `The AI service sent an error: ${raw}`;
 }
 
 function learnerAsked(messages: any[], at: number): boolean {
@@ -245,6 +260,8 @@ export class Tutor implements InteractionBroker {
 	private pending = new Map<string, { interaction: PendingInteraction; resolve: (answer: unknown) => void }>();
 	private streamingText: string | null = null;
 	private lastError: string | undefined;
+	/** What the page shows while LILA waits to try a busy AI service again. */
+	private retrying: string | null = null;
 	private settings: AppSettings = loadSettings();
 	private busy = false;
 	/** Results of answered cards whose tool-result message pi hasn't added yet. */
@@ -386,10 +403,7 @@ export class Tutor implements InteractionBroker {
 	private wrapUpRefusals = 0;
 
 	sectionsLeft(toolCallId: string, question: string, openEnded: boolean): string | undefined {
-		const plan = this.plan();
-		if (!plan || this.wrapUpRefusals >= 3) return undefined;
-		const left = this.untaught(plan);
-		if (left.length === 0) return undefined;
+		if (this.wrapUpRefusals >= 3) return undefined;
 		// "In your own words" questions belong to the Final quiz; so does anything after a wrap-up heading.
 		const { messages, at, text } = this.textBefore(toolCallId);
 		const wrapping =
@@ -397,13 +411,55 @@ export class Tutor implements InteractionBroker {
 			WRAP_UP_HEADING.test(text) ||
 			WRAP_UP_HEADING.test(textOf(messages[at]?.content));
 		if (!wrapping) return undefined;
+		const plan = this.plan();
+		if (!plan) {
+			this.wrapUpRefusals++;
+			return `Not shown: you haven't written the learning plan or taught anything yet. Finish the pre-test now: write "Pre-test complete" with what the learner already knows, then "Your learning plan", then teach each section in order. Only after the last section, start the Final quiz.`;
+		}
+		const left = this.untaught(plan);
+		if (left.length === 0) return undefined;
 		this.wrapUpRefusals++;
 		return `Not shown: you haven't taught every section of your plan yet. Still to teach: ${left.join("; ")}. Teach ${left[0].replace(/:.*/, "")} now, under the heading "${left[0]}", with its own check question, then the rest in order. Only after the last section, start the Final quiz.`;
 	}
 
+	/** True once the tutor has summed up the pre-test or written the plan. */
+	private pretestDone(): boolean {
+		return this.assistantTexts().some((t) => t.split("\n").some((l) => HEADING.test(l) && /pre-?test complete|learning plan/i.test(l)));
+	}
+
+	/** Quiz questions the learner has answered so far. */
+	private quizAnswers(): number {
+		return ((this.session?.messages ?? []) as any[]).filter(
+			(m) => m.role === "toolResult" && m.toolName === QUIZ_TOOL && m.details?.status === "answered",
+		).length;
+	}
+
+	private assistantTexts(): string[] {
+		return ((this.session?.messages ?? []) as any[]).filter((m) => m.role === "assistant").map((m) => textOf(m.content));
+	}
+
+	/** Where the lesson is, so the tutor can pick up its place after an error. */
+	private whereWeAre(): string {
+		const plan = this.plan();
+		if (!plan) {
+			if (this.pretestDone()) return "You had finished the pre-test. Write \"Your learning plan\" if you haven't yet, then teach Section 1.";
+			return `You were giving the pre-test (${this.quizAnswers()} questions answered so far). Carry on with it, keeping it to about ${PRETEST_ENOUGH} questions in all, then write "Pre-test complete", then "Your learning plan", then teach Section 1.`;
+		}
+		const left = this.untaught(plan);
+		if (left.length > 0) {
+			return `You were teaching your plan: ${plan.taught.size} of ${plan.sections.length} sections taught. Carry on with ${left[0]} (finish it if you had started it), then the rest in order, then the Final quiz.`;
+		}
+		return "Every section of your plan is taught. Carry on with the Final quiz where you left off, then the Summary and What to learn next.";
+	}
+
 	planProgress(): string | undefined {
 		const plan = this.plan();
-		if (!plan) return undefined;
+		if (!plan) {
+			// This answer isn't saved yet.
+			const n = this.quizAnswers() + 1;
+			if (this.pretestDone() || n < PRETEST_ENOUGH) return undefined;
+			return `Note from the LILA app: that's ${n} pre-test questions, which is enough. Don't ask more. Now write "Pre-test complete" with what the learner already knows, then "Your learning plan", then teach Section 1.`;
+		}
 		const left = this.untaught(plan);
 		if (left.length === 0) return undefined;
 		return `Plan progress (from the LILA app): ${plan.taught.size} of ${plan.sections.length} sections taught. Still to teach, in order: ${left.join("; ")}. Don't start the Final quiz until all are taught.`;
@@ -440,6 +496,7 @@ export class Tutor implements InteractionBroker {
 			lessonPath: this.session?.sessionFile ?? null,
 			lessonTitle: this.session?.sessionName ?? null,
 			error: this.lastError ?? null,
+			retrying: this.retrying,
 			webPhotos: !!this.settings.photoSearchKey,
 		};
 	}
@@ -460,7 +517,8 @@ export class Tutor implements InteractionBroker {
 		if (!this.session) return [];
 		const items: TranscriptItem[] = [];
 		const byToolCall = new Map<string, TranscriptItem & { kind: "quiz" | "ask" }>();
-		for (const msg of this.session.messages as any[]) {
+		const messages = this.session.messages as any[];
+		for (const msg of messages) {
 			if (msg.role === "user") {
 				const text = textOf(msg.content).replace(APP_NOTE, "").trim();
 				const resource = parseMessage(text);
@@ -487,7 +545,12 @@ export class Tutor implements InteractionBroker {
 					}
 				}
 				if (text.trim()) items.push({ kind: "assistant", id: partId(msg, part), text });
-				if (msg.stopReason === "error" && msg.errorMessage) items.push({ kind: "error", text: msg.errorMessage });
+				// Errors that were retried successfully aren't worth showing.
+				// Only the error the lesson stopped on: earlier ones were retried, and
+				// while LILA is still trying again the page says so instead.
+				if (msg.stopReason === "error" && msg.errorMessage && msg === messages[messages.length - 1] && !this.busy) {
+					items.push({ kind: "error", text: friendlyError(msg.errorMessage), retry: true });
+				}
 			} else if (msg.role === "toolResult") {
 				const item = byToolCall.get(msg.toolCallId);
 				if (item) item.result = msg.details ?? { status: "unavailable", message: textOf(msg.content) };
@@ -578,9 +641,14 @@ export class Tutor implements InteractionBroker {
 		const thinking = THINKING_LEVELS.includes(this.settings.thinkingLevel as Thinking)
 			? (this.settings.thinkingLevel as Thinking)
 			: "medium";
+		// Busy AI servers ("Overloaded") usually recover within a minute or two,
+		// so keep trying for longer than pi's default (3 tries over 14 seconds).
+		const settingsManager = SettingsManager.create(WORKSPACE_DIR, getAgentDir());
+		settingsManager.applyOverrides({ retry: { enabled: true, maxRetries: 6, baseDelayMs: 3000, maxAgentDelayMs: 30_000 } });
 		const { session } = await createAgentSession({
 			cwd: WORKSPACE_DIR,
 			modelRuntime: this.runtime,
+			settingsManager,
 			model,
 			thinkingLevel: thinking,
 			resourceLoader: loader,
@@ -683,11 +751,18 @@ export class Tutor implements InteractionBroker {
 			if (!material) asked = true;
 		}
 		if (asked) this.openQuestion = { text, refusals: 0 };
+		// The last reply stopped on an error (a busy AI service): remind the
+		// tutor where the lesson was, so it doesn't lose its place.
+		const last = (session.messages as any[]).at(-1);
+		const resume =
+			last?.role === "assistant" && last.stopReason === "error"
+				? `\n\n<app-note>The lesson stopped because the AI service had an error. ${this.whereWeAre()} Don't repeat questions the learner already answered.</app-note>`
+				: "";
 		try {
 			if (session.isStreaming) {
-				await session.steer(text + (asked ? ANSWER_NOTE : "") + this.visualReminder(true));
+				await session.steer(text + (asked ? ANSWER_NOTE : "") + resume + this.visualReminder(true));
 			} else {
-				await session.prompt(text + (asked ? ANSWER_NOTE : "") + this.visualReminder(true));
+				await session.prompt(text + (asked ? ANSWER_NOTE : "") + resume + this.visualReminder(true));
 			}
 		} catch (err) {
 			this.lastError = (err as Error).message;
@@ -874,6 +949,11 @@ export class Tutor implements InteractionBroker {
 			.slice(0, 4000);
 	}
 
+	/** Carries the lesson on after it stopped on an error. */
+	async retry(): Promise<void> {
+		await this.prompt("Please continue the lesson.");
+	}
+
 	async abort(): Promise<void> {
 		await this.session?.abort();
 	}
@@ -920,14 +1000,16 @@ export class Tutor implements InteractionBroker {
 
 	exportMarkdown(): string {
 		const lines: string[] = [`# ${this.session?.sessionName ?? "Lesson"}`, ""];
-		for (const item of this.transcript()) {
+		const items = this.transcript();
+		const phases = quizPhases(items);
+		for (const [i, item] of items.entries()) {
 			if (item.kind === "user") lines.push(`> **You:** ${item.text.replace(/\n/g, "\n> ")}`, "");
 			else if (item.kind === "resource") lines.push(`> 📎 **Learning resource:** ${item.name}`, "");
 			else if (item.kind === "assistant") lines.push(item.text, "", ...(item.pictures ?? []).flatMap((p) => [p, ""]));
 			else if (item.kind === "error") lines.push(`> ⚠️ ${item.text}`, "");
 			else {
 				const r = item.result as any;
-				lines.push(`**${item.kind === "quiz" ? "Quiz" : "Question"}:** ${item.question}`, "");
+				lines.push(`**${item.kind === "quiz" ? QUIZ_LABEL[phases[i]] : "Question"}:** ${item.question}`, "");
 				for (const o of r?.options ?? []) {
 					const chosen = (r.answers ?? []).some((a: any) => a.index === o.index);
 					const key = (r.correctIndices ?? []).includes(o.index);
@@ -984,8 +1066,19 @@ export class Tutor implements InteractionBroker {
 					void this.pushState();
 				}
 				break;
+			case "auto_retry_start": {
+				const { attempt, maxAttempts } = event as any;
+				this.retrying = `Claude's servers are busy right now. Trying again (${attempt} of ${maxAttempts})…`;
+				void this.pushState();
+				break;
+			}
+			case "auto_retry_end":
+				this.retrying = null;
+				void this.pushState();
+				break;
 			case "agent_settled":
 				this.busy = false;
+				this.retrying = null;
 				this.holdCardsUntil = null;
 				this.openQuestion = null;
 				this.feedbackDue = null;
