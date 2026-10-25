@@ -239,6 +239,7 @@ a {
 	min-width: 0;
 	display: flex;
 	flex-direction: column;
+	position: relative;
 }
 .topbar {
 	display: flex;
@@ -1264,4 +1265,50 @@ button.option:not(:disabled):hover {
 	font-family: var(--reading);
 	font-style: italic;
 	line-height: 1.55;
+}
+
+/* Drag and drop for the learner's own files and links, in the logo's turquoise. */
+.drop-area {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	margin: 12px 0;
+}
+.drop-box {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	text-align: center;
+	padding: 28px 20px;
+	border: 2.5px dashed #14b8a6;
+	border-radius: var(--radius);
+	background: rgba(20, 184, 166, 0.06);
+	color: var(--text);
+	cursor: pointer;
+}
+.drop-box:hover,
+.drop-box.over {
+	background: rgba(20, 184, 166, 0.16);
+}
+.drop-icon {
+	font-size: 26px;
+	color: #14b8a6;
+}
+.drop-overlay {
+	position: absolute;
+	inset: 0;
+	z-index: 50;
+	display: grid;
+	place-items: center;
+	padding: 24px;
+	background: rgba(15, 23, 42, 0.35);
+	pointer-events: none;
+}
+.drop-overlay .drop-box {
+	width: min(560px, 100%);
+	padding: 48px 24px;
+	background: var(--surface);
+	font-size: 18px;
 }
