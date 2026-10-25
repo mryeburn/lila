@@ -253,6 +253,7 @@ export function Settings({ store, onClose }: { store: TutorStore; onClose: () =>
 					</section>
 				)}
 
+				<WebPhotosSection store={store} />
 				<PictureLogSection store={store} />
 				<section className="about">
 					<h3>About LILA</h3>
@@ -264,6 +265,70 @@ export function Settings({ store, onClose }: { store: TutorStore; onClose: () =>
 				</section>
 			</div>
 		</div>
+	);
+}
+
+/** Turns on photos from Google Images with a free SerpApi key. */
+function WebPhotosSection({ store }: { store: TutorStore }) {
+	const { state, send } = store;
+	const [key, setKey] = useState("");
+	if (!state) return null;
+	return (
+		<section>
+			<h3>Photos from Google Images</h3>
+			{state.webPhotos ? (
+				<div className="update-row">
+					<span className="success-text">Photos from Google Images are on.</span>
+					<button type="button" className="link-button" onClick={() => send({ type: "set_photo_key", key: "" })}>
+						Turn off
+					</button>
+				</div>
+			) : (
+				<>
+					<p className="muted-text">
+						LILA can also show you photos from Google Images. This uses a free SerpApi account: 250 photo searches a
+						month, no credit card, and it never charges you.
+					</p>
+					<ol className="steps">
+						<li>
+							Make a free account at{" "}
+							<a href="https://serpapi.com/users/sign_up" target="_blank" rel="noreferrer noopener">
+								serpapi.com
+							</a>
+							.
+						</li>
+						<li>
+							Copy your key from{" "}
+							<a href="https://serpapi.com/manage-api-key" target="_blank" rel="noreferrer noopener">
+								your SerpApi key page
+							</a>
+							.
+						</li>
+						<li>Paste it here and click Save.</li>
+					</ol>
+					<form
+						className="login-form"
+						onSubmit={(e) => {
+							e.preventDefault();
+							if (key.trim()) send({ type: "set_photo_key", key: key.trim() });
+							setKey("");
+						}}
+					>
+						<input
+							className="text-input"
+							type="password"
+							placeholder="Paste your SerpApi key"
+							value={key}
+							onChange={(e) => setKey(e.target.value)}
+							autoComplete="off"
+						/>
+						<button type="submit" className="primary" disabled={!key.trim()}>
+							Save
+						</button>
+					</form>
+				</>
+			)}
+		</section>
 	);
 }
 

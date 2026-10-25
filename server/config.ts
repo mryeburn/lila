@@ -18,6 +18,8 @@ export interface AppSettings {
 	provider?: string;
 	modelId?: string;
 	thinkingLevel?: string;
+	/** SerpApi key, for photos from Google Images. */
+	photoSearchKey?: string;
 }
 
 export function ensureDirs(): void {

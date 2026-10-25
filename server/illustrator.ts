@@ -16,6 +16,7 @@ import type { Api, Context, ImageContent, Model, TextContent } from "@earendil-w
 import {
 	type Candidate,
 	fetchThumb,
+	IMAGE_URL,
 	KINDS,
 	searchCommons,
 	searchImages,
@@ -214,7 +215,7 @@ async function pickImage(
 		aimed = await searchImages(find.search, "any", find.kind, signal, options);
 		if (aimed.length === 0 && find.kind !== "any") aimed = await searchImages(find.search, "any", "any", signal, options);
 	}
-	const taken = new Set([...(req.used ?? []), ...(req.shown ?? []).flatMap((s) => s.match(/https:\/\/[^\s)"]+/g) ?? [])]);
+	const taken = new Set([...(req.used ?? []), ...(req.shown ?? []).flatMap((s) => s.match(IMAGE_URL) ?? [])]);
 	const pool: Candidate[] = [];
 	for (const c of [...aimed, ...(req.library ?? [])]) {
 		if (!taken.has(c.url) && !pool.some((p) => p.url === c.url)) pool.push(c);
