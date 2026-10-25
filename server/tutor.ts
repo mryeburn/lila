@@ -569,6 +569,12 @@ export class Tutor implements InteractionBroker {
 	}
 
 	private visualReminder(tagged = false): string {
+		// Not while the lesson is being set up (goal and materials questions):
+		// a nudge there makes the tutor show a picture instead of waiting for files.
+		const started = ((this.session?.messages ?? []) as any[]).some(
+			(m) => m.role === "assistant" && (m.content ?? []).some((b: any) => b.type === "toolCall" && b.name === QUIZ_TOOL),
+		);
+		if (!started) return "";
 		const n = this.repliesWithoutVisual();
 		if (n < 2) return "";
 		const note = `Note from the LILA app, not from the learner: your last ${n} replies had no visual. Include a fitting diagram, chart or find_image photo in your next reply, or in the context or explanation of your next quiz question.`;
