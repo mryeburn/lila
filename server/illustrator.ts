@@ -11,7 +11,7 @@
 // or chart, and never twice in a row while real images remain. Every step is
 // written to the picture log (server/picturelog.ts).
 
-import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import type { AiModels } from "./engine/models.ts";
 import type { Api, Context, ImageContent, Model, TextContent } from "@earendil-works/pi-ai";
 import {
 	type Candidate,
@@ -58,7 +58,7 @@ SEARCH: <search words>`;
 
 /** Gathers real images for a lesson's topic. Never throws; may return none. */
 export async function buildLibrary(
-	runtime: ModelRuntime,
+	runtime: AiModels,
 	model: Model<Api>,
 	topic: string,
 	start: string,
@@ -125,7 +125,7 @@ export interface IllustrateResult {
 
 /** Asks the AI for one picture. Never throws. */
 export async function illustrate(
-	runtime: ModelRuntime,
+	runtime: AiModels,
 	model: Model<Api>,
 	req: IllustrateRequest,
 	signal?: AbortSignal,
@@ -201,7 +201,7 @@ function parseDrawing(reply: string): string | undefined {
 }
 
 async function pickImage(
-	runtime: ModelRuntime,
+	runtime: AiModels,
 	model: Model<Api>,
 	req: IllustrateRequest,
 	find: Find | undefined,
@@ -277,7 +277,7 @@ async function pickImage(
 }
 
 async function ask(
-	runtime: ModelRuntime,
+	runtime: AiModels,
 	model: Model<Api>,
 	systemPrompt: string,
 	content: string | (TextContent | ImageContent)[],
