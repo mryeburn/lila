@@ -6,7 +6,7 @@ import { LessonFile } from "./engine/lessonfile.ts";
 import type { AiModels } from "./engine/models.ts";
 import { buildLibrary, illustrate } from "./illustrator.ts";
 import { type Candidate, createImageTool, IMAGE_URL } from "./images.ts";
-import { CLIP_BLOCK, createVideoTool } from "./videos.ts";
+import { CLIP_BLOCK, CLIP_EVERY_LESSON, createVideoTool } from "./videos.ts";
 import { asMessage, type Material, parseMessage } from "./materials.ts";
 import { QUIZ_LABEL, quizPhases } from "./phases.ts";
 import { BASE_PROMPT, buildTeachingPrompt } from "./prompt.ts";
@@ -492,9 +492,16 @@ export class Tutor implements InteractionBroker {
 		const plan = this.plan();
 		if (!plan) return "";
 		const left = this.untaught(plan);
-		if (left.length === 0) return "\n\n<app-note>Every section is taught: start the Final quiz now. Make about 1 in 4 of its questions picture questions, some with a real find_image photo.</app-note>";
+		if (left.length === 0)
+			return `\n\n<app-note>Every section is taught: start the Final quiz now. Open it by telling the learner the teaching part is done and it's time to see how much they've learned. Make about 1 in 4 of its questions picture questions, some with a real find_image photo.</app-note>`;
 		let next = `Teach ${left[0]} next, in this reply, then stop at its end. Include at least one real find_image photo in it.`;
-		if (!this.triedVideo()) next += " The lesson has no video clip yet: if this section shows something happening or moving, include one find_video clip.";
+		if (!this.triedVideo()) {
+			// While testing, every lesson has a clip: by the last section, insist.
+			next +=
+				CLIP_EVERY_LESSON && (left.length === 1 || plan.taught.size >= 1)
+					? " The lesson has no video clip yet, and every lesson needs one: call find_video in this section for whatever in it happens or moves."
+					: " The lesson has no video clip yet: if this section shows something happening or moving, include one find_video clip.";
+		}
 		return `\n\n<app-note>${next}</app-note>`;
 	}
 

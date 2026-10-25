@@ -3,6 +3,7 @@ import { QUIZ_LABEL, type QuizPhase, quizPhases } from "../../server/phases.ts";
 import type { TranscriptItem } from "../../server/protocol.ts";
 import { AddResource, DropBox, isDroppable, sendDropped } from "./components/AddResource.tsx";
 import { AskCard, AskResult, QuestionsInvite, QuizCard, QuizResult } from "./components/Cards.tsx";
+import { KeyPopup } from "./components/KeyPopup.tsx";
 import { Markdown } from "./components/Markdown.tsx";
 import { PartDivider, TutorText } from "./components/Parts.tsx";
 import { Settings } from "./components/Settings.tsx";
@@ -590,6 +591,7 @@ export function App() {
 			</main>
 
 			{settingsOpen && <Settings store={store} onClose={() => setSettingsOpen(false)} />}
+			<KeyPopup store={store} hidden={settingsOpen} />
 			{store.toast && (
 				<div className="toast" onClick={store.clearToast}>
 					{store.toast}

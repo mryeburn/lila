@@ -1025,6 +1025,13 @@ button.option:not(:disabled):hover {
 
 /* ── Photos ──────────────────────────────────────────────────────────────── */
 
+/* A picture that couldn't load: hide it, its empty paragraph, and the tutor's
+   italic description line right under it. */
+p:has(> .photo-failed:only-child),
+p:has(> .photo-failed) + p:has(> em:only-child) {
+	display: none;
+}
+
 .photo {
 	display: block;
 	margin: 12px 0;

@@ -4,7 +4,7 @@
 
 import { Markdown } from "./Markdown.tsx";
 
-const PART = /^(pre-?test complete|your learning plan|section\s+\d+\b|final quiz|summary\b)/i;
+const PART = /^(pre-?test complete|your learning plan|section\s+\d+\b|final quiz|how you['’]?ve progressed|summary\b)/i;
 
 /** The divider label if this line is one of the tutor's part headings. */
 function partLabel(line: string): string | null {
