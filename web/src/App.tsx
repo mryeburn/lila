@@ -53,6 +53,38 @@ function Pictures({
 	);
 }
 
+type QuizPhase = "pre-test" | "lesson" | "final";
+
+/** Which part of the lesson each item is in, from the tutor's headings so far. */
+function quizPhases(items: TranscriptItem[]): QuizPhase[] {
+	let phase: QuizPhase = "pre-test";
+	return items.map((item) => {
+		if (item.kind === "assistant") {
+			const headings = item.text.match(/^\s*(#{1,6}\s.*|\*\*[^*]+\*\*\s*)$/gm) ?? [];
+			for (const h of headings) {
+				if (/pre-?test complete|learning plan/i.test(h) && phase === "pre-test") phase = "lesson";
+				if (/final quiz/i.test(h)) phase = "final";
+			}
+		}
+		return phase;
+	});
+}
+
+const START_QUIZ: Record<QuizPhase, { text: string; label: string }> = {
+	"pre-test": {
+		text: "If you have a question, type it in here. Otherwise, start the pre-test.",
+		label: "Start the pre-test →",
+	},
+	lesson: {
+		text: "If you have a question about this section, type it in here. Otherwise, start the quiz.",
+		label: "Start the quiz →",
+	},
+	final: {
+		text: "If you have a question about the lesson, type it in here. Otherwise, start the final quiz.",
+		label: "Start the final quiz →",
+	},
+};
+
 /** The learner said yes to "Do you have any files or web links…?" */
 function saidYesToFiles(item: TranscriptItem): boolean {
 	return (
@@ -63,7 +95,17 @@ function saidYesToFiles(item: TranscriptItem): boolean {
 	);
 }
 
-function Item({ item, store, latestCard }: { item: TranscriptItem; store: TutorStore; latestCard?: boolean }) {
+function Item({
+	item,
+	store,
+	latestCard,
+	phase = "lesson",
+}: {
+	item: TranscriptItem;
+	store: TutorStore;
+	latestCard?: boolean;
+	phase?: QuizPhase;
+}) {
 	switch (item.kind) {
 		case "user":
 			return (
@@ -107,8 +149,8 @@ function Item({ item, store, latestCard }: { item: TranscriptItem; store: TutorS
 			if (pending?.kind === "pause")
 				return (
 					<QuestionsInvite
-						text="If you have a question about this section, type it in here. Otherwise, start the quiz."
-						continueLabel="Start the quiz →"
+						text={START_QUIZ[phase].text}
+						continueLabel={START_QUIZ[phase].label}
 						onContinue={() => answer({})}
 						onAsk={(text) => answer({ text })}
 					/>
@@ -236,6 +278,8 @@ export function App() {
 			if (added) limit = added.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - 16;
 			target = Math.max(target, Math.min(max, limit));
 		}
+		// The home page starts at its top, so the name and logo show.
+		if (items.length === 0 && streaming === null) target = 0;
 		scrollTo(el, Math.max(0, Math.min(max, target)));
 		checkMoreBelow(el);
 	}, [items, streaming, store.interactions]);
@@ -258,6 +302,7 @@ export function App() {
 	};
 
 	const last = items.at(-1);
+	const phases = quizPhases(items);
 	const latestCard = [...items].reverse().find((item) => item.kind === "quiz" || item.kind === "ask");
 	// The tutor finished a teaching section and is waiting: invite questions.
 	const inviteQuestions =
@@ -415,7 +460,13 @@ export function App() {
 					<div className="transcript">
 						{items.length === 0 && streaming === null && (
 							<div className="welcome">
-								<div className="logo big">L</div>
+								<div className="hero-brand">
+									<div className="hero-name">
+										<span className="logo big">L</span>
+										<span className="hero-lila">LILA</span>
+									</div>
+									<div className="hero-full">Lila Interactive Learning Assistant</div>
+								</div>
 								<h1>What do you want to understand?</h1>
 								<p>
 									Your tutor first checks what you already know with a few quick questions, then shows you a plan, then
@@ -436,6 +487,7 @@ export function App() {
 								item={item}
 								store={store}
 								latestCard={item === latestCard}
+								phase={phases[i]}
 							/>
 						))}
 						{streaming !== null && streaming.trim() !== "" && !lastIsStreamingDuplicate && (

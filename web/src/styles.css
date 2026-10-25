@@ -324,6 +324,38 @@ a {
 	text-align: center;
 	padding: 8vh 8px 0;
 }
+/* The big name at the top of the home page. */
+.hero-brand {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 6px;
+	margin-bottom: 28px;
+}
+.hero-name {
+	display: flex;
+	align-items: center;
+	gap: 16px;
+}
+.hero-name .logo.big {
+	width: 72px;
+	height: 72px;
+	border-radius: 18px;
+	font-size: 44px;
+	margin-bottom: 0;
+}
+.hero-lila {
+	font-size: 64px;
+	font-weight: 800;
+	letter-spacing: 0.04em;
+	line-height: 1;
+	color: #14b8a6;
+}
+.hero-full {
+	font-size: 20px;
+	font-weight: 500;
+	color: var(--text);
+}
 .welcome h1 {
 	font-family: var(--reading);
 	font-weight: 600;
@@ -1311,4 +1343,18 @@ button.option:not(:disabled):hover {
 	padding: 48px 24px;
 	background: var(--surface);
 	font-size: 18px;
+}
+@media (max-width: 520px) {
+	.hero-name .logo.big {
+		width: 52px;
+		height: 52px;
+		border-radius: 14px;
+		font-size: 32px;
+	}
+	.hero-lila {
+		font-size: 46px;
+	}
+	.hero-full {
+		font-size: 16px;
+	}
 }

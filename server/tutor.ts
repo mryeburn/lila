@@ -54,6 +54,17 @@ type Thinking = (typeof THINKING_LEVELS)[number];
  * typed instead of a quiz answer or before one, a follow-up typed right after a
  * quiz answer, or any message with a question mark.
  */
+/** The text without its "Your learning plan" part (from that heading to the next heading). */
+export function withoutPlan(text: string): string {
+	const lines = text.split("\n");
+	const heading = (line: string) => /^\s*(#{1,6}\s|\*\*[^*]+\*\*\s*$)/.test(line);
+	const start = lines.findIndex((line) => heading(line) && /learning plan/i.test(line));
+	if (start < 0) return text;
+	let end = lines.findIndex((line, i) => i > start && heading(line));
+	if (end < 0) end = lines.length;
+	return [...lines.slice(0, start), ...lines.slice(end)].join("\n");
+}
+
 function learnerAsked(messages: any[], at: number): boolean {
 	const prev = messages[at - 1];
 	if (prev?.role === "toolResult") return prev.details?.status === "paused" || !!prev.details?.skippedWith;
@@ -638,8 +649,10 @@ export class Tutor implements InteractionBroker {
 		}
 		parts.push([partId(msg, part), text]);
 		for (const [id, partText] of parts) {
-			if (partText.trim().length >= MIN_SECTION_LENGTH && !VISUAL.test(partText) && !this.pictures.byId.has(id)) {
-				this.draw(id, partText, "section", false);
+			// The learning plan stays a plain list: only the teaching around it gets a picture.
+			const teaching = withoutPlan(partText);
+			if (teaching.trim().length >= MIN_SECTION_LENGTH && !VISUAL.test(partText) && !this.pictures.byId.has(id)) {
+				this.draw(id, teaching, "section", false);
 			}
 		}
 	}
