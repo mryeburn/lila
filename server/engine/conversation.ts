@@ -83,6 +83,8 @@ export class Conversation {
 	private queued: UserMessage[] = [];
 	private abortController: AbortController | undefined;
 	private running: Promise<void> | undefined;
+	/** A reply being written ahead of time, for a message the learner hasn't sent yet. */
+	private prepared: Prepared | undefined;
 
 	constructor(options: ConversationOptions) {
 		this.models = options.models;
@@ -120,6 +122,7 @@ export class Conversation {
 		return this._model;
 	}
 	async setModel(model: Model<Api>): Promise<void> {
+		this.discardPrepared();
 		this._model = model;
 		this.file.setModel(model.provider, model.id);
 		this.setThinkingLevel(this._thinkingLevel);
@@ -130,6 +133,7 @@ export class Conversation {
 	setThinkingLevel(level: ModelThinkingLevel): void {
 		const next = this.clamp(level);
 		if (next === this._thinkingLevel) return;
+		this.discardPrepared();
 		this._thinkingLevel = next;
 		this.file.setThinkingLevel(next);
 	}
@@ -149,6 +153,7 @@ export class Conversation {
 	}
 
 	dispose(): void {
+		this.discardPrepared();
 		this.abortController?.abort();
 		this.listeners.clear();
 	}
@@ -161,8 +166,12 @@ export class Conversation {
 			this.steer(text);
 			return this.running;
 		}
+		const prepared = this.prepared;
+		this.prepared = undefined;
+		const ready = prepared && prepared.text === text && prepared.base === this.history.length;
+		if (!ready) prepared?.abort.abort();
 		this.queued.push(userMessage(text));
-		this.running = this.run().finally(() => {
+		this.running = (ready ? this.runPrepared(prepared) : this.run()).finally(() => {
 			this.running = undefined;
 			this.abortController = undefined;
 			this.emit({ type: "agent_settled" });
@@ -177,16 +186,109 @@ export class Conversation {
 
 	/** Stops the tutor and waits until it has stopped. */
 	async abort(): Promise<void> {
+		this.discardPrepared();
 		this.queued = [];
 		this.abortController?.abort();
 		await this.running?.catch(() => {});
 	}
 
-	private async run(): Promise<void> {
+	/**
+	 * Starts writing the reply to `text` in the background, before the
+	 * learner sends it, so it can be shown at once when they do. Only the
+	 * tools in `tools` (searches, which the learner doesn't see) run ahead;
+	 * if the reply calls another (a card), the rest is written live instead.
+	 * Thrown away if the learner sends anything else, or the lesson changes.
+	 */
+	prepare(text: string, tools: string[]): void {
+		if (this.running || !this._model) return;
+		if (this.prepared?.text === text && this.prepared.base === this.history.length) return;
+		this.discardPrepared();
+		const prepared: Prepared = {
+			text,
+			base: this.history.length,
+			abort: new AbortController(),
+			messages: [],
+			partial: undefined,
+			adopted: undefined,
+			finished: false,
+			done: Promise.resolve(),
+		};
+		prepared.done = this.writeAhead(prepared, tools);
+		this.prepared = prepared;
+	}
+
+	private discardPrepared(): void {
+		this.prepared?.abort.abort();
+		this.prepared = undefined;
+	}
+
+	private async writeAhead(prepared: Prepared, tools: string[]): Promise<void> {
+		const signal = prepared.abort.signal;
+		const history = [...this.history, userMessage(prepared.text)];
+		const keep = (message: Message) => {
+			history.push(message);
+			prepared.messages.push(message);
+			prepared.adopted?.(message);
+		};
+		// A few rounds at most: a reply, its searches, the reply that uses them.
+		for (let round = 0; round < 4 && !signal.aborted; round++) {
+			const reply = await this.stream(signal, history, (partial) => {
+				prepared.partial = partial;
+				prepared.adopted?.(partial, true);
+			});
+			prepared.partial = undefined;
+			if (reply.stopReason === "error" || reply.stopReason === "aborted") return;
+			const calls = reply.content.filter((b): b is ToolCall => b.type === "toolCall");
+			// A card has to be shown live, so the reply that asks for it is written live too.
+			if (calls.some((c) => !tools.includes(c.name))) return;
+			keep(reply);
+			if (calls.length === 0) {
+				prepared.finished = true;
+				return;
+			}
+			for (const call of calls) {
+				if (signal.aborted) return;
+				keep(await this.runTool(call, signal, false));
+			}
+		}
+	}
+
+	/** Shows a reply written ahead (finishing it live if it isn't done), then carries on as usual. */
+	private async runPrepared(prepared: Prepared): Promise<void> {
+		this.abortController = prepared.abort;
+		const signal = prepared.abort.signal;
+		this.emit({ type: "agent_start" });
+		for (const message of this.queued.splice(0)) this.add(message);
+		let streaming = false;
+		const show = (message: Message, partial = false) => {
+			if (partial) {
+				if (!streaming) this.emit({ type: "message_start", message });
+				else this.emit({ type: "message_update", message: message as AssistantMessage });
+				streaming = true;
+				return;
+			}
+			// Stamped with when the learner sees it, after the message it answers.
+			message = { ...message, timestamp: Date.now() } as Message;
+			this.add(message, streaming);
+			if (message.role === "toolResult")
+				this.emit({ type: "tool_execution_end", toolCallId: message.toolCallId, toolName: message.toolName, result: message, isError: message.isError });
+			streaming = false;
+		};
+		for (const message of prepared.messages) show(message);
+		prepared.adopted = show;
+		if (prepared.partial) show(prepared.partial, true);
+		await prepared.done;
+		prepared.adopted = undefined;
+		if (signal.aborted) return;
+		// Not finished ahead (a card, an error, or a message typed meanwhile): carry on live.
+		if (!prepared.finished || this.queued.length > 0) await this.run(false);
+	}
+
+	private async run(start = true): Promise<void> {
 		const abort = new AbortController();
 		this.abortController = abort;
 		const signal = abort.signal;
-		this.emit({ type: "agent_start" });
+		if (start) this.emit({ type: "agent_start" });
 		while (!signal.aborted) {
 			for (const message of this.queued.splice(0)) this.add(message);
 			const reply = await this.reply(signal);
@@ -225,12 +327,16 @@ export class Conversation {
 	}
 
 	/** Streams one reply, telling the page about each piece as it arrives. */
-	private async stream(signal: AbortSignal): Promise<AssistantMessage> {
+	private async stream(
+		signal: AbortSignal,
+		messages: Message[] = this.history,
+		onUpdate?: (partial: AssistantMessage) => void,
+	): Promise<AssistantMessage> {
 		const model = this._model;
 		if (!model) return failed("No AI model is selected. Sign in under Settings.");
 		const context = {
 			systemPrompt: this.systemPrompt,
-			messages: this.history,
+			messages,
 			tools: this.tools.map(
 				(t): Tool => ({ name: t.name, description: t.description, parameters: t.parameters }),
 			),
@@ -246,13 +352,15 @@ export class Conversation {
 			for await (const event of response) {
 				if (event.type === "start") {
 					started = true;
-					this.emit({ type: "message_start", message: event.partial });
+					if (onUpdate) onUpdate(event.partial);
+					else this.emit({ type: "message_start", message: event.partial });
 				} else if ("partial" in event && started) {
-					this.emit({ type: "message_update", message: event.partial });
+					if (onUpdate) onUpdate(event.partial);
+					else this.emit({ type: "message_update", message: event.partial });
 				}
 			}
 			const message = await response.result();
-			if (!started) this.emit({ type: "message_start", message });
+			if (!started && !onUpdate) this.emit({ type: "message_start", message });
 			return { ...message, thinkingLevel: level };
 		} catch (err) {
 			return failed((err as Error).message, signal.aborted);
@@ -273,7 +381,7 @@ export class Conversation {
 		}
 	}
 
-	private async runTool(call: ToolCall, signal: AbortSignal): Promise<ToolResultMessage> {
+	private async runTool(call: ToolCall, signal: AbortSignal, announce = true): Promise<ToolResultMessage> {
 		const tool = this.tools.find((t) => t.name === call.name);
 		let result: ToolResult;
 		let isError = false;
@@ -292,7 +400,7 @@ export class Conversation {
 				isError = true;
 			}
 		}
-		this.emit({ type: "tool_execution_end", toolCallId: call.id, toolName: call.name, result, isError });
+		if (announce) this.emit({ type: "tool_execution_end", toolCallId: call.id, toolName: call.name, result, isError });
 		return toolResult(call, result, isError);
 	}
 
@@ -300,6 +408,8 @@ export class Conversation {
 
 	/** Adds a message to the lesson and saves it. `started`: the page already saw it begin. */
 	private add(message: Message, started = false): void {
+		// The lesson moved on: a reply written ahead no longer fits.
+		if (this.prepared && !this.running) this.discardPrepared();
 		this.history = [...this.history, message];
 		this.file.appendMessage(message);
 		if (!started) this.emit({ type: "message_start", message });
@@ -319,6 +429,23 @@ export class Conversation {
 			}
 		}
 	}
+}
+
+interface Prepared {
+	/** The learner's message it answers. */
+	text: string;
+	/** How long the lesson was when it started: it only fits that lesson. */
+	base: number;
+	abort: AbortController;
+	/** Finished messages so far (replies and search results). */
+	messages: Message[];
+	/** The reply being written now. */
+	partial: AssistantMessage | undefined;
+	/** Set once the learner has sent the message: shows each piece as it arrives. */
+	adopted: ((message: Message, partial?: boolean) => void) | undefined;
+	/** Whether the whole reply was written ahead. */
+	finished: boolean;
+	done: Promise<void>;
 }
 
 function userMessage(text: string): UserMessage {
