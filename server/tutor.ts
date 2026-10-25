@@ -221,16 +221,15 @@ export class Tutor implements InteractionBroker {
 		});
 	}
 
-	/** After a long teaching section, the lesson pauses for questions before the quiz. */
 	/**
-	 * Set when the learner types while the tutor is mid-reply. The tutor may have
-	 * queued several cards at once and only reads the message after they've all
-	 * run, so the rest are held back until its next reply starts.
+	 * Set when the learner says something while the tutor is mid-reply. The tutor
+	 * may have queued several cards at once and only reads the message after
+	 * they've all run, so the rest are held back until it has read it.
 	 */
-	private learnerSpoke = false;
+	private holdCardsUntil: "user" | "assistant" | null = null;
 
 	learnerWaiting(): boolean {
-		return this.learnerSpoke;
+		return this.holdCardsUntil !== null;
 	}
 
 	/** The tutor's text just before a card, and whether it's the first thing in its reply. */
@@ -260,6 +259,7 @@ export class Tutor implements InteractionBroker {
 		return at > 0 && firstPart && text.trim().length < 20 && learnerAsked(messages, at, true);
 	}
 
+	/** After a long teaching section, the lesson pauses for questions before the quiz. */
 	async beforeQuiz(toolCallId: string, signal: AbortSignal | undefined): Promise<string | undefined> {
 		const { messages, at, text, firstPart } = this.textBefore(toolCallId);
 		if (text.trim().length < MIN_SECTION_LENGTH) return undefined;
@@ -480,20 +480,21 @@ export class Tutor implements InteractionBroker {
 			session.setSessionName(title.replace(/\s+/g, " ").trim().slice(0, 80));
 		}
 		this.lastError = undefined;
-		// A card is waiting: the run is paused inside that tool call, so a normal
-		// message would queue behind it forever. Use the text as the card's answer.
 		// A graded quiz just waits for "Next question", so it's dismissed and the
-		// text goes to the tutor as a normal message.
-		if (session.isStreaming) this.learnerSpoke = true;
+		// text goes to the tutor as a normal message: a follow-up question about it.
 		for (const { interaction, resolve } of [...this.pending.values()]) {
 			if (interaction.kind !== "graded") continue;
-			// Typed right after a quiz answer: a follow-up question about it.
 			asked = true;
 			resolve({});
 		}
+		// Another card is waiting: the run is paused inside that tool call, so a
+		// normal message would queue behind it forever. Use the text as the card's
+		// answer. Typed instead of a quiz answer or at the questions pause, it's
+		// something the tutor must respond to before the cards it had queued.
 		if (this.pending.size > 0) {
 			for (const { interaction, resolve } of [...this.pending.values()]) {
 				if (interaction.kind === "graded") continue;
+				if (interaction.kind === "pause" || interaction.kind === "quiz") this.holdCardsUntil = "assistant";
 				if (interaction.kind === "pause") resolve({ text: cardText });
 				else if (interaction.kind === "quiz") resolve({ skippedWith: cardText });
 				else if (interaction.mode === "text") resolve({ text: cardText });
@@ -501,6 +502,13 @@ export class Tutor implements InteractionBroker {
 			}
 			// The whole document follows the card's answer as its own message.
 			if (cardText === text) return;
+		}
+		// Typed while the tutor is busy (writing, or just past a quiz): it only
+		// reads the message once its current reply's cards have run, so hold
+		// those back until the message is delivered, and ask for an answer first.
+		if (session.isStreaming) {
+			this.holdCardsUntil = "user";
+			asked = true;
 		}
 		try {
 			if (session.isStreaming) {
@@ -741,7 +749,33 @@ export class Tutor implements InteractionBroker {
 				if (item.kind === "quiz") for (const p of item.pictures ?? []) lines.push(p, "");
 			}
 		}
+		lines.push(...this.troubleshootingLog());
 		return lines.join("\n");
+	}
+
+	/**
+	 * Everything the tutor saw and did, in order, including what the learner
+	 * never sees (held cards, the app's notes). Folded away at the end of the
+	 * download so a problem can be traced from the file.
+	 */
+	private troubleshootingLog(): string[] {
+		const clip = (t: string, n = 300) => (t.length > n ? `${t.slice(0, n)}…` : t).replace(/\s+/g, " ").trim();
+		const out = ["", "<details><summary>Details for troubleshooting</summary>", "", "```"];
+		for (const msg of (this.session?.messages ?? []) as any[]) {
+			const time = msg.timestamp ? new Date(msg.timestamp).toISOString().slice(11, 19) : "";
+			if (msg.role === "user") out.push(`${time} learner: ${clip(textOf(msg.content), 600)}`);
+			else if (msg.role === "assistant") {
+				for (const block of msg.content ?? []) {
+					if (block.type === "text" && block.text.trim()) out.push(`${time} tutor: ${clip(block.text)}`);
+					if (block.type === "toolCall") out.push(`${time} tutor calls ${block.name}: ${clip(JSON.stringify(block.arguments ?? {}), 200)}`);
+				}
+				if (msg.stopReason && msg.stopReason !== "toolUse" && msg.stopReason !== "stop") out.push(`${time} (reply ended: ${msg.stopReason})`);
+			} else if (msg.role === "toolResult") {
+				out.push(`${time} result: ${msg.details?.status ?? (msg.isError ? "error" : "?")}: ${clip(textOf(msg.content), 200)}`);
+			}
+		}
+		out.push("```", "", "</details>", "");
+		return out;
 	}
 
 	// ── pi events → page ─────────────────────────────────────────────────────
@@ -758,7 +792,7 @@ export class Tutor implements InteractionBroker {
 				break;
 			case "agent_settled":
 				this.busy = false;
-				this.learnerSpoke = false;
+				this.holdCardsUntil = null;
 				this.streamingText = null;
 				this.broadcast({ type: "transcript", items: this.transcript() });
 				this.broadcast({ type: "streaming", text: null });
@@ -766,7 +800,9 @@ export class Tutor implements InteractionBroker {
 				void this.lessons().then((lessons) => this.broadcast({ type: "lessons", lessons }));
 				break;
 			case "message_start":
-				if ((event as any).message?.role === "assistant") this.learnerSpoke = false;
+				// Held until the learner's message reaches the tutor, or (when it
+				// came as a card's answer) until the tutor's next reply starts.
+				if ((event as any).message?.role === this.holdCardsUntil) this.holdCardsUntil = null;
 				break;
 			case "message_update": {
 				const partial = (event as any).message;

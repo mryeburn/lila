@@ -16,7 +16,10 @@ function loadMermaid() {
 			// "base" takes the app's colors: soft indigo boxes, clear lines, readable text.
 			theme: "base",
 			securityLevel: "strict",
-			flowchart: { curve: "basis", padding: 14 },
+			// Plain SVG text, not HTML boxes: mermaid sizes each box from the text as
+			// drawn, so a label can't be cut off when the browser's fonts differ.
+			htmlLabels: false,
+			flowchart: { curve: "basis", padding: 14, htmlLabels: false },
 			themeVariables: dark
 				? {
 						darkMode: true,
