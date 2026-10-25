@@ -494,10 +494,7 @@ export function App() {
 									<div className="hero-full">Lila Interactive Learning Assistant</div>
 								</div>
 								<h1>What do you want to understand?</h1>
-								<p>
-									Your tutor first checks what you already know with a few quick questions, then shows you a plan, then
-									teaches it one small step at a time, with pictures and quick checks along the way.
-								</p>
+								<p>I'm your own private tutor. Tell me anything you want to learn, and I'll teach it to you.</p>
 								<div className="starters">
 									{STARTERS.map((s) => (
 										<button key={s} type="button" className="starter" onClick={() => submit(s)}>
