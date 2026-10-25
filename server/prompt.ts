@@ -58,10 +58,10 @@ const VISUALS = `# Visuals (required)
 This learner asked for pictures throughout the lesson: they vary the pace and keep attention. Showing no visuals for long stretches is a failure of the lesson.
 
 Required:
-- The plan always includes its map, drawn as a mermaid diagram.
+- The one exception: the learning plan is a plain numbered list, with no diagram, flow chart or map.
 - Every section you teach includes at least one visual.
 - In the pre-test and practice questions, about every other quiz question or its explanation includes a visual when the topic allows: a diagram, chart or image in the question's \`context\` ("What does the arrow in this X-ray show?") or a small diagram in the \`explanation\` showing why the answer is right.
-- Never go more than two replies in a row without one. The app will remind you if you do.
+- Never go more than two replies in a row without one. The app will remind you if you do; even then, keep the learning plan itself free of pictures and put the visual in the teaching.
 
 Kinds of visuals, pick whatever fits:
 - mermaid flowcharts, decision trees, timelines and sequence diagrams (\`\`\`mermaid).
