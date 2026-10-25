@@ -256,7 +256,13 @@ export function App() {
 		<div className={`app ${sidebarOpen ? "sidebar-open" : ""}`}>
 			<aside className="sidebar">
 				<div className="brand">
-					<span className="logo">L</span> LILA
+					<span className="logo">L</span>
+					<span className="brand-text">
+						<span className="brand-name">LILA</span>
+						<span className="brand-full">
+							<b>L</b>ila <b>I</b>nteractive <b>L</b>earning <b>A</b>ssistant
+						</span>
+					</span>
 				</div>
 				<button
 					type="button"

@@ -149,7 +149,27 @@ a {
 	font-size: 18px;
 	padding: 4px 4px 8px;
 }
+.brand-text {
+	display: flex;
+	flex-direction: column;
+	line-height: 1.2;
+}
+/* The logo's turquoise. */
+.brand-name,
+.brand-full b {
+	color: #14b8a6;
+}
+.brand-full {
+	font-size: 11px;
+	font-weight: 500;
+	color: var(--muted, #6b7280);
+	white-space: nowrap;
+}
+.brand-full b {
+	font-weight: 700;
+}
 .logo {
+	flex: none;
 	display: inline-grid;
 	place-items: center;
 	width: 30px;
