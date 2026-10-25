@@ -749,7 +749,33 @@ export class Tutor implements InteractionBroker {
 				if (item.kind === "quiz") for (const p of item.pictures ?? []) lines.push(p, "");
 			}
 		}
+		lines.push(...this.troubleshootingLog());
 		return lines.join("\n");
+	}
+
+	/**
+	 * Everything the tutor saw and did, in order, including what the learner
+	 * never sees (held cards, the app's notes). Folded away at the end of the
+	 * download so a problem can be traced from the file.
+	 */
+	private troubleshootingLog(): string[] {
+		const clip = (t: string, n = 300) => (t.length > n ? `${t.slice(0, n)}…` : t).replace(/\s+/g, " ").trim();
+		const out = ["", "<details><summary>Details for troubleshooting</summary>", "", "```"];
+		for (const msg of (this.session?.messages ?? []) as any[]) {
+			const time = msg.timestamp ? new Date(msg.timestamp).toISOString().slice(11, 19) : "";
+			if (msg.role === "user") out.push(`${time} learner: ${clip(textOf(msg.content), 600)}`);
+			else if (msg.role === "assistant") {
+				for (const block of msg.content ?? []) {
+					if (block.type === "text" && block.text.trim()) out.push(`${time} tutor: ${clip(block.text)}`);
+					if (block.type === "toolCall") out.push(`${time} tutor calls ${block.name}: ${clip(JSON.stringify(block.arguments ?? {}), 200)}`);
+				}
+				if (msg.stopReason && msg.stopReason !== "toolUse" && msg.stopReason !== "stop") out.push(`${time} (reply ended: ${msg.stopReason})`);
+			} else if (msg.role === "toolResult") {
+				out.push(`${time} result: ${msg.details?.status ?? (msg.isError ? "error" : "?")}: ${clip(textOf(msg.content), 200)}`);
+			}
+		}
+		out.push("```", "", "</details>", "");
+		return out;
 	}
 
 	// ── pi events → page ─────────────────────────────────────────────────────
