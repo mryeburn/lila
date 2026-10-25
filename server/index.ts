@@ -1,4 +1,3 @@
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as http from "node:http";
@@ -6,6 +5,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
 import { DATA_DIR, ensureDirs } from "./config.ts";
+import { AiModels } from "./engine/models.ts";
 import { type Material, MaterialError, readFile, readLink } from "./materials.ts";
 import type { ClientMessage, LoginPrompt, ModelInfo, ProviderInfo, ServerMessage } from "./protocol.ts";
 import { Tutor } from "./tutor.ts";
@@ -20,9 +20,7 @@ const HOST = process.env.HOST || "127.0.0.1";
 const WEB_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../web/dist");
 
 ensureDirs();
-const runtime = await ModelRuntime.create(
-	process.env.LILA_MODELS_PATH ? { modelsPath: process.env.LILA_MODELS_PATH } : undefined,
-);
+const runtime = await AiModels.create(process.env.LILA_MODELS_PATH);
 
 const clients = new Set<WebSocket>();
 function sendTo(ws: WebSocket, msg: ServerMessage) {

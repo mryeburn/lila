@@ -62,7 +62,7 @@ export type ConversationEvent =
 const RETRY = { maxRetries: 6, baseDelayMs: 3000, maxDelayMs: 30_000 };
 
 export interface ConversationOptions {
-	models: Models;
+	models: { streamSimple: Models["streamSimple"] };
 	file: LessonFile;
 	model: Model<Api> | undefined;
 	thinkingLevel: ModelThinkingLevel;
@@ -71,7 +71,7 @@ export interface ConversationOptions {
 }
 
 export class Conversation {
-	private readonly models: Models;
+	private readonly models: ConversationOptions["models"];
 	private readonly file: LessonFile;
 	private readonly systemPrompt: string;
 	private readonly tools: ToolDefinition<any, any>[];

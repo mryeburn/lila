@@ -1,9 +1,9 @@
-import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import * as fs from "node:fs";
 import { type AppSettings, loadSettings, SESSIONS_DIR, saveSettings, WORKSPACE_DIR } from "./config.ts";
 import { Conversation, type ConversationEvent, type ToolDefinition } from "./engine/conversation.ts";
 import { LessonFile } from "./engine/lessonfile.ts";
+import type { AiModels } from "./engine/models.ts";
 import { buildLibrary, illustrate } from "./illustrator.ts";
 import { type Candidate, createImageTool, IMAGE_URL } from "./images.ts";
 import { CLIP_BLOCK, createVideoTool } from "./videos.ts";
@@ -267,7 +267,7 @@ export class Tutor implements InteractionBroker {
 	private lastModel: Model<Api> | undefined;
 
 	constructor(
-		readonly runtime: ModelRuntime,
+		readonly runtime: AiModels,
 		private readonly broadcast: (msg: ServerMessage) => void,
 	) {}
 
