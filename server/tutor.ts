@@ -460,6 +460,33 @@ export class Tutor implements InteractionBroker {
 		return "Every section of your plan is taught. Carry on with the Final quiz where you left off, then the Summary and What to learn next.";
 	}
 
+	// ── Writing the next section ahead ───────────────────────────────────────
+	// While the learner reads a section, the tutor already writes the next one
+	// in the background, so "Continue the lesson" shows it at once. If the
+	// learner asks a question instead, the prepared section is thrown away.
+
+	/** The message "Continue the lesson" will send, and how long the lesson was then. */
+	private preparedContinue: { text: string; base: number } | undefined;
+
+	private prepareNextSection(): void {
+		const session = this.session;
+		this.preparedContinue = undefined;
+		if (!session || this.pending.size > 0 || this.lastError) return;
+		const plan = this.plan();
+		if (!plan || this.untaught(plan).length === 0) return;
+		const messages = session.messages as any[];
+		const last = messages.at(-1);
+		if (last?.role !== "assistant" || last.stopReason !== "stop") return;
+		// Only after a teaching section, when the page invites questions.
+		let turn = "";
+		for (let i = messages.length - 1; i >= 0 && messages[i].role !== "user"; i--)
+			if (messages[i].role === "assistant") turn = `${textOf(messages[i].content)}\n${turn}`;
+		if (turn.trim().length < MIN_SECTION_LENGTH) return;
+		const text = CONTINUE_TEXT + this.nextSectionNote() + this.visualReminder(true);
+		this.preparedContinue = { text, base: messages.length };
+		session.prepare(text, ["find_image", "find_video"]);
+	}
+
 	/** After a section, when the learner has no questions: what to teach next. */
 	private nextSectionNote(): string {
 		const plan = this.plan();
@@ -754,11 +781,16 @@ export class Tutor implements InteractionBroker {
 				: text === CONTINUE_TEXT
 					? this.nextSectionNote()
 					: "";
+		let message = text + (asked ? ANSWER_NOTE : "") + resume + this.visualReminder(true);
+		// The next section may already be written: send the exact message it answers.
+		const prepared = this.preparedContinue;
+		this.preparedContinue = undefined;
+		if (text === CONTINUE_TEXT && !asked && !session.isStreaming && prepared?.base === session.messages.length) message = prepared.text;
 		try {
 			if (session.isStreaming) {
-				await session.steer(text + (asked ? ANSWER_NOTE : "") + resume + this.visualReminder(true));
+				await session.steer(message);
 			} else {
-				await session.prompt(text + (asked ? ANSWER_NOTE : "") + resume + this.visualReminder(true));
+				await session.prompt(message);
 			}
 		} catch (err) {
 			this.lastError = (err as Error).message;
@@ -1083,6 +1115,7 @@ export class Tutor implements InteractionBroker {
 				this.broadcast({ type: "streaming", text: null });
 				void this.pushState();
 				void this.lessons().then((lessons) => this.broadcast({ type: "lessons", lessons }));
+				this.prepareNextSection();
 				break;
 			case "message_start":
 				// Held until the learner's message reaches the tutor, or (when it
