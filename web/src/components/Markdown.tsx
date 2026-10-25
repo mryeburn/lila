@@ -1,6 +1,6 @@
 import DOMPurify from "dompurify";
 import "katex/dist/katex.min.css";
-import { memo, useEffect, useId, useRef, useState } from "react";
+import { memo, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeKatex from "rehype-katex";
@@ -127,6 +127,8 @@ function MermaidDiagram({ code, onBroken }: { code: string; onBroken?: () => voi
 	const id = `m${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
 	const [svg, setSvg] = useState<string | null>(null);
 	const [failed, setFailed] = useState(false);
+	const broken = useRef(onBroken);
+	broken.current = onBroken;
 	useEffect(() => {
 		let cancelled = false;
 		loadMermaid()
@@ -139,12 +141,12 @@ function MermaidDiagram({ code, onBroken }: { code: string; onBroken?: () => voi
 			.catch(() => {
 				if (cancelled) return;
 				setFailed(true);
-				onBroken?.();
+				broken.current?.();
 			});
 		return () => {
 			cancelled = true;
 		};
-	}, [code, id, onBroken]);
+	}, [code, id]);
 	// The app replaces its own broken pictures, so there's nothing to show.
 	if (failed && onBroken) return null;
 	if (failed) {
@@ -257,11 +259,21 @@ export const Markdown = memo(function Markdown({
 	/** Called when a diagram or photo can't be shown; it is then hidden. */
 	onBroken?: () => void;
 }) {
+	// The same components every time: new ones would make React rebuild every
+	// diagram on each page update, and a diagram being redrawn is briefly short,
+	// which jumps the page up.
+	const broken = useRef(onBroken);
+	broken.current = onBroken;
+	const hasBroken = onBroken !== undefined;
+	const components = useMemo(
+		() => makeComponents(streaming, inline, hasBroken ? () => broken.current?.() : undefined),
+		[streaming, inline, hasBroken],
+	);
 	return (
 		<ReactMarkdown
 			remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: true }]]}
 			rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: false }]]}
-			components={makeComponents(streaming, inline, onBroken)}
+			components={components}
 		>
 			{normalizeMath(text)}
 		</ReactMarkdown>
