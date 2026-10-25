@@ -75,6 +75,17 @@ export interface InteractionBroker {
 	learnerWaiting?(): boolean;
 	/** What the learner asked, while the tutor is trying to show this card without having answered it. */
 	unansweredQuestion?(toolCallId: string): string | undefined;
+	/** A quiz question is about to be shown: a picture for its explanation can be started now. */
+	quizShown?(toolCallId: string, quiz: QuizAbout): void;
+}
+
+/** What a quiz question is about, for making a picture of its answer. */
+export interface QuizAbout {
+	question: string;
+	context?: string;
+	options: DisplayOption[];
+	correctIndices: number[];
+	explanation?: string;
 }
 
 const unanswered = (asked: string) =>
@@ -187,6 +198,7 @@ export function createQuizTool(broker: InteractionBroker): ToolDefinition<typeof
 				return textResult(message, { status: "paused", question, mode, message: "You asked a question first", skippedWith: asked });
 			}
 
+			broker.quizShown?.(toolCallId, { question, context: details, options, correctIndices, explanation });
 			const answer = await broker.request<QuizAnswer>(
 				{ kind: "quiz", id: toolCallId, question, details, multiSelect, options },
 				signal,

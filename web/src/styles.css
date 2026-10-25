@@ -335,13 +335,16 @@ a {
 .hero-name {
 	display: flex;
 	align-items: center;
-	gap: 16px;
+	gap: 6px;
 }
 .hero-name .logo.big {
 	width: 72px;
 	height: 72px;
 	border-radius: 18px;
-	font-size: 44px;
+	/* Same size and weight as "ILA", so the box reads as the first letter. */
+	font-size: 64px;
+	font-weight: 800;
+	line-height: 1;
 	margin-bottom: 0;
 }
 .hero-lila {
@@ -1349,7 +1352,7 @@ button.option:not(:disabled):hover {
 		width: 52px;
 		height: 52px;
 		border-radius: 14px;
-		font-size: 32px;
+		font-size: 46px;
 	}
 	.hero-lila {
 		font-size: 46px;

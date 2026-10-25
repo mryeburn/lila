@@ -461,9 +461,10 @@ export function App() {
 						{items.length === 0 && streaming === null && (
 							<div className="welcome">
 								<div className="hero-brand">
-									<div className="hero-name">
+									{/* The L in the box is the name's first letter. */}
+									<div className="hero-name" role="img" aria-label="LILA">
 										<span className="logo big">L</span>
-										<span className="hero-lila">LILA</span>
+										<span className="hero-lila">ILA</span>
 									</div>
 									<div className="hero-full">Lila Interactive Learning Assistant</div>
 								</div>

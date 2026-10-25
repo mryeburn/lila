@@ -14,7 +14,15 @@ import { buildLibrary, illustrate } from "./illustrator.ts";
 import { type Candidate, createImageTool } from "./images.ts";
 import { asMessage, type Material, parseMessage } from "./materials.ts";
 import { BASE_PROMPT, buildTeachingPrompt } from "./prompt.ts";
-import { ASK_TOOL, createAskTool, createQuizTool, type InteractionBroker, type PendingInteraction, QUIZ_TOOL } from "./tools.ts";
+import {
+	ASK_TOOL,
+	createAskTool,
+	createQuizTool,
+	type InteractionBroker,
+	type PendingInteraction,
+	QUIZ_TOOL,
+	type QuizAbout,
+} from "./tools.ts";
 import type { LessonSummary, ServerMessage, TranscriptItem, TutorState } from "./protocol.ts";
 
 const TOOL_NAMES = [QUIZ_TOOL, ASK_TOOL];
@@ -93,6 +101,10 @@ class LessonPictures {
 	readonly drawing = new Set<string>();
 	/** Parts whose broken diagram was already replaced once. */
 	readonly retried = new Set<string>();
+	/** Quiz pictures LILA started on its own: dropped if not ready when the learner moves on. */
+	readonly autoQuiz = new Set<string>();
+	/** Pictures that came too late to show. */
+	readonly dropped = new Set<string>();
 	/** Real images gathered for this lesson's topic (server/illustrator.ts). */
 	library: Candidate[] | undefined;
 	private libraryBuild: Promise<Candidate[]> | undefined;
@@ -222,11 +234,29 @@ export class Tutor implements InteractionBroker {
 				this.broadcast({ type: "interaction_done", id: interaction.id });
 				resolve(answer as T | undefined);
 			};
-			const onAbort = () => finish(undefined);
+			const onAbort = () => (this.pending.get(interaction.id)?.resolve ?? finish)(undefined);
 			signal?.addEventListener("abort", onAbort);
 			this.pending.set(interaction.id, { interaction, resolve: finish });
 			this.broadcast({ type: "interaction", interaction });
-			if (interaction.kind === "graded") this.autoIllustrateQuiz(interaction.id, interaction.result);
+			// LILA's own picture for a quiz is dropped when the learner moves on from
+			// the graded card before it's ready (it would pop up late), and when the
+			// question goes unanswered (it would give the answer away when re-asked).
+			if (interaction.kind === "graded" || interaction.kind === "quiz") {
+				const pics = this.pictures;
+				const id = interaction.id;
+				this.pending.set(id, {
+					interaction,
+					resolve: (answer: unknown) => {
+						const unanswered = interaction.kind === "quiz" && (!answer || (answer as any).skippedWith !== undefined);
+						if (pics.autoQuiz.has(id) && (pics.drawing.has(id) || unanswered)) {
+							pics.dropped.add(id);
+							pics.drawing.delete(id);
+							if (unanswered) for (const picture of [...(pics.byId.get(id) ?? [])]) pics.remove(id, picture);
+						}
+						finish(answer);
+					},
+				});
+			}
 		});
 	}
 
@@ -657,14 +687,19 @@ export class Tutor implements InteractionBroker {
 		}
 	}
 
-	private autoIllustrateQuiz(id: string, result: any): void {
-		const own = VISUAL.test(`${result?.context ?? ""}\n${result?.explanation ?? ""}`);
+	/**
+	 * A quiz question is shown: start its picture now, so it's ready with the
+	 * explanation (it only shows once the learner has answered).
+	 */
+	quizShown(id: string, quiz: QuizAbout): void {
+		const own = VISUAL.test(`${quiz.context ?? ""}\n${quiz.explanation ?? ""}`);
 		if (own || this.lastQuizHadPicture || this.pictures.byId.has(id)) {
 			this.lastQuizHadPicture = own;
 			return;
 		}
 		this.lastQuizHadPicture = true;
-		this.draw(id, quizContent(result), "explanation", false);
+		this.pictures.autoQuiz.add(id);
+		this.draw(id, quizContent(quiz), "explanation", false);
 	}
 
 	/** The learner pressed "Show me a picture". */
@@ -723,6 +758,7 @@ export class Tutor implements InteractionBroker {
 			)
 			.then((result) => {
 				pics.drawing.delete(id);
+				if (pics.dropped.has(id)) return;
 				if (result.markdown) pics.add(id, result.markdown);
 				if (this.pictures !== pics) return;
 				if (!result.markdown && required) {
