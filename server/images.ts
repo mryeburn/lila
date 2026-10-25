@@ -64,7 +64,8 @@ const Params = Type.Object({
 });
 
 export const IMAGE_GUIDELINES = [
-	"Use find_image when a real photo or scan would genuinely help: what a finding looks like on an X-ray, a skin lesion, an instrument, an anatomical specimen, a microscope slide. Prefer your own mermaid/svg drawings for processes, relationships and simple schematics.",
+	"Use find_image in nearly every teaching section, wherever there is something real to see: what a finding looks like on an X-ray, a skin lesion, an instrument, an anatomical specimen, a microscope slide, a place, a person, an object, a historical photo. Use your own mermaid/svg drawings for processes, relationships and simple schematics, alongside the photos.",
+	"Leave source out (it searches every library) unless you need only clinical images.",
 	"Look at the returned images before choosing. Only use one that clearly shows what you will say it shows; if none fits, say nothing about it and draw a diagram instead, or skip the picture.",
 	"Embed the chosen image by copying its markdown line from the result exactly (the URL and the credit in quotes). Never type or edit an image URL yourself; images from anywhere else will not be shown.",
 	"If none of the results fits, search again with other words (the common name, a synonym, or adding 'photo' or 'clinical photo') before giving up. Never tell the learner you can't show a real photo or suggest they search for one themselves.",

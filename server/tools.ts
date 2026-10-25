@@ -131,7 +131,7 @@ const isTrue = (v: unknown) => v === true || v === "true";
 // Rules for each tool; prompt.ts puts them in the system prompt.
 export const QUIZ_GUIDELINES = [
 	`Use ${QUIZ_TOOL} for the pre-test and the Final quiz only, never while teaching the plan's sections. For anything without a right answer, use ${ASK_TOOL}.`,
-	"About 1 in 4 questions is a picture question: put a labelled svg drawing (markers A, B, C, D on the parts) or a find_image photo in context, and ask about it. The picture must not name or give away the answer.",
+	"About 1 in 4 questions is a picture question: put a labelled svg drawing (markers A, B, C, D on the parts) or a find_image photo in context, and ask about it. Use real photos for some of them, not only drawings. The picture, its caption and its credit must not name or give away the answer.",
 	"One question per call. Several short questions, each adjusted to the last answer, find gaps better than one long question.",
 	"Mark the right choice with correct: true. If more than one choice is right, mark them all; the learner then has to pick exactly those.",
 	"Every call needs an explanation, shown after the learner answers, saying why the right answer is right.",

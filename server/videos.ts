@@ -27,7 +27,7 @@ const Params = Type.Object({
 });
 
 export const VIDEO_GUIDELINES = [
-	`Use find_video only where a moving picture really helps: a process, a technique, how something moves, forms or sounds. Usually one clip per lesson, none in some lessons, never more than ${MAX_CLIPS}. Never in the pre-test or the Final quiz.`,
+	`Show one clip in most lessons, in the section where a moving picture helps most: a process, a technique, how something moves, forms or sounds, or real footage of an event. Never more than ${MAX_CLIPS} per lesson. Never in the pre-test or the Final quiz.`,
 	"Search words work best short and specific, often with 'animation' or 'demonstration'.",
 	"You get the top videos' transcripts with timings. Pick one stretch of 15 to 40 seconds where the narration shows exactly your point. If no stretch fits, skip the video and use a picture instead; never show a long video.",
 	"Embed it by writing the ```youtube block exactly as the result says, right where you talk about it, then one short line in italics on what to watch for.",
