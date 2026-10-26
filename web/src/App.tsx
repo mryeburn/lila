@@ -511,11 +511,11 @@ export function App() {
 							</div>
 						)}
 						{busy && state?.retrying && <div className="msg retry-msg">{state.retrying}</div>}
-						{busy && Object.keys(store.interactions).length === 0 && (streaming === null || streaming.trim() === "") && (
-							<div className="thinking">
-								<span />
-								<span />
-								<span />
+						{/* While the tutor works, even mid-reply, so a pause never looks like a freeze. */}
+						{busy && Object.keys(store.interactions).length === 0 && (
+							<div className="working" role="status">
+								<span className="spinner" aria-hidden="true" />
+								{store.activity ?? "Working…"}
 							</div>
 						)}
 					</div>
