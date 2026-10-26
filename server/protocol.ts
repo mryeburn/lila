@@ -91,6 +91,8 @@ export type ServerMessage =
 	| { type: "resource_done"; ok: boolean; error?: string }
 	| { type: "transcript"; items: TranscriptItem[] }
 	| { type: "streaming"; text: string | null }
+	/** What the tutor is busy with, for the spinner; null when it's just working. */
+	| { type: "activity"; text: string | null }
 	| { type: "interaction"; interaction: PendingInteraction }
 	| { type: "interaction_done"; id: string }
 	| { type: "lessons"; lessons: LessonSummary[]; folders: string[]; sort: LessonSort }

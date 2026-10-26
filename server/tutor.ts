@@ -52,6 +52,13 @@ const FEEDBACK_LENGTH = 80;
 const SHOWN = ["answered", "cancelled", "paused"];
 /** What the page sends when the learner has no questions after a section. */
 const CONTINUE_TEXT = "No questions, please continue.";
+// What the spinner says while the tutor uses each tool.
+const ACTIVITY: Record<string, string> = {
+	quiz_question: "Preparing a quiz question…",
+	ask_learner: "Preparing a question…",
+	find_image: "Finding a photo…",
+	find_video: "Finding a video clip…",
+};
 const REVIEW_TEXT = "I'm back to review this lesson. Please give me a new quiz on it.";
 const REVIEW_NOTE =
 	'\n\n<app-note>The learner opened this finished lesson again to review it. Start a new part with the heading "Review quiz". Ask 5 to 8 new quiz_question cards, one at a time, covering the lesson\'s main areas. Every question must be new: never repeat or reword a question already asked anywhere in this lesson. Only ask about what this lesson taught. About 1 in 4 can be a picture question. After the last answer, write the heading "How you did" and compare briefly, area by area, with how they did in the lesson\'s Final quiz. Don\'t reteach the lesson.</app-note>';
@@ -450,13 +457,30 @@ export class Tutor implements InteractionBroker {
 
 	quizWhileTeaching(toolCallId: string): string | undefined {
 		if (this.teachingQuizRefusals >= 3) return undefined;
-		// The lesson so far, up to this card: earlier replies in full, this one up to the card.
-		const { messages, at, text } = this.textBefore(toolCallId);
-		const sofar = [...messages.slice(0, Math.max(at, 0)).filter((m) => m.role === "assistant").map((m) => textOf(m.content)), text];
+		// The lesson so far, up to this card: earlier replies in full, this one up to
+		// the card (all of its text, including before any earlier cards in it).
+		const { messages, at } = this.textBefore(toolCallId);
+		const sofar = [
+			...messages.slice(0, Math.max(at, 0)).filter((m) => m.role === "assistant").map((m) => textOf(m.content)),
+			this.textUpTo(messages[at], toolCallId),
+		];
 		const has = (re: RegExp) => sofar.some((t) => t.split("\n").some((l) => HEADING.test(l) && re.test(l)));
 		if (!has(/pre-?test complete|learning plan/i) || has(/final quiz/i)) return undefined;
+		// Every section is taught: this is the Final quiz, even without its heading.
+		const plan = this.plan();
+		if (plan && this.untaught(plan).length === 0) return undefined;
 		this.teachingQuizRefusals++;
 		return "Not shown: there are no quiz questions while you teach the plan's sections. Quiz questions belong only in the pre-test and the Final quiz. Instead, finish teaching this section with a real-life example, a visual and the key points, then stop your reply; the page asks the learner if they have questions.";
+	}
+
+	/** All of a reply's text before the given card. */
+	private textUpTo(message: any, toolCallId: string): string {
+		let text = "";
+		for (const block of message?.content ?? []) {
+			if (block.type === "toolCall" && block.id === toolCallId) break;
+			if (block.type === "text") text += `${block.text}\n`;
+		}
+		return text;
 	}
 
 	/** How many times this lesson's wrap-up was sent back for sections still to teach. */
@@ -559,7 +583,7 @@ export class Tutor implements InteractionBroker {
 		}
 		const left = this.untaught(plan);
 		if (left.length === 0)
-			return `\n\n<app-note>Every section is taught: start the Final quiz now. Open it by telling the learner the teaching part is done and it's time to see how much they've learned. Make about 1 in 4 of its questions picture questions, some with a real find_image photo.</app-note>`;
+			return `\n\n<app-note>Every section is taught: start the Final quiz now. Begin with the heading "Final quiz", before any card. Open it by telling the learner the teaching part is done and it's time to see how much they've learned. Make about 1 in 4 of its questions picture questions, some with a real find_image photo.</app-note>`;
 		let next = `Teach ${left[0]} next, in this reply, then stop at its end. Include at least one real find_image photo in it.`;
 		if (!this.triedVideo()) {
 			// While testing, every lesson has a clip: by the last section, insist.
@@ -651,8 +675,19 @@ export class Tutor implements InteractionBroker {
 		send({ type: "state", state: await this.state() });
 		send({ type: "transcript", items: this.transcript() });
 		send({ type: "streaming", text: this.streamingText });
+		send({ type: "activity", text: this.activity });
 		for (const { interaction } of this.pending.values()) send({ type: "interaction", interaction });
 		send(await this.lessonsMessage());
+	}
+
+	/** What the tutor is busy with, for the page's spinner ("Finding a photo…"); null when just working. */
+	private activity: string | null = null;
+
+	private setActivity(toolName: string | null): void {
+		const text = (toolName && ACTIVITY[toolName]) || null;
+		if (text === this.activity) return;
+		this.activity = text;
+		this.broadcast({ type: "activity", text });
 	}
 
 	private async pushState(): Promise<void> {
@@ -1308,6 +1343,7 @@ export class Tutor implements InteractionBroker {
 				void this.pushState();
 				break;
 			case "agent_settled":
+				this.setActivity(null);
 				this.busy = false;
 				this.retrying = null;
 				this.holdCardsUntil = null;
@@ -1333,6 +1369,8 @@ export class Tutor implements InteractionBroker {
 					if (block.type === "text") text += block.text;
 				}
 				this.streamingText = text;
+				const lastBlock = (partial.content ?? []).at(-1);
+				this.setActivity(lastBlock?.type === "toolCall" ? lastBlock.name : null);
 				const now = Date.now();
 				if (now - this.lastStreamPush > 50) {
 					this.lastStreamPush = now;
@@ -1346,7 +1384,10 @@ export class Tutor implements InteractionBroker {
 			}
 			// falls through
 			case "message_end":
+				if (event.type === "tool_execution_end") this.setActivity(null);
 				if (event.type === "message_end" && (event as any).message?.role === "assistant") {
+					const call = ((event as any).message.content ?? []).find((b: any) => b.type === "toolCall");
+					this.setActivity(call?.name ?? null);
 					this.autoIllustrateMessage((event as any).message);
 					// A reply written after the question arrived, with real text: answered.
 					const written = ((event as any).message.content ?? []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("");

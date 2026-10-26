@@ -1551,3 +1551,28 @@ p:has(> .photo-failed) + p:has(> em:only-child) {
 	justify-content: center;
 	margin: 8px 0 24px;
 }
+
+/* ── Spinner while the tutor works ───────────────────────────────────────── */
+
+.working {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 8px 0;
+	color: var(--muted);
+	font-size: 14px;
+}
+.spinner {
+	width: 18px;
+	height: 18px;
+	border-radius: 50%;
+	border: 2.5px solid var(--border);
+	border-top-color: var(--accent);
+	animation: spin 0.8s linear infinite;
+	flex-shrink: 0;
+}
+@keyframes spin {
+	to {
+		transform: rotate(360deg);
+	}
+}

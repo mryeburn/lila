@@ -69,6 +69,7 @@ export const IMAGE_GUIDELINES = [
 	"Look at the returned images before choosing. Only use one that clearly shows what you will say it shows; if none fits, say nothing about it and draw a diagram instead, or skip the picture.",
 	"Embed the chosen image by copying its markdown line from the result exactly (the URL and the credit in quotes). Never type or edit an image URL yourself; images from anywhere else will not be shown.",
 	"If none of the results fits, search again with other words (the common name, a synonym, or adding 'photo' or 'clinical photo') before giving up. Never tell the learner you can't show a real photo or suggest they search for one themselves.",
+	"Prefer images from trusted sources (the Wikipedia article, Wikimedia Commons, Open-i). Use one marked \"found with Google Images\" only when no trusted image fits, and check its labels and text carefully: copies on ordinary websites can be wrong or blurry.",
 	"Give it a short, accurate caption as the alt text, point out what to look at in your text, and don't use more than one or two photos per section.",
 ];
 
@@ -108,10 +109,15 @@ export function createImageTool(canSeeImages: () => boolean): ToolDefinition<typ
 	};
 }
 
+/** For the AI choosing a picture: which sources to trust first. */
+export const TRUSTED_SOURCES =
+	'Prefer trusted sources (Wikipedia, Wikimedia Commons, Open-i). Choose an image "found with Google Images" only when no trusted one fits, and only if its labels and text are clearly correct.';
+
 /**
- * Searches the libraries and returns candidates, best sources first:
+ * Searches the libraries and returns candidates, trusted sources first:
  * images from the matching Wikipedia article (curated, captioned), then
- * Google Images, Open-i and Wikimedia Commons search results, taking turns.
+ * Open-i and Wikimedia Commons search results, taking turns, and Google
+ * Images results last (a couple of places are kept for them).
  */
 export async function searchImages(
 	query: string,
@@ -125,19 +131,27 @@ export async function searchImages(
 	const wikipedia =
 		source !== "clinical" ? searchWikipedia(options.article || query, signal).catch(() => []) : Promise.resolve([]);
 	const searches: Promise<Candidate[]>[] = [];
-	if (source === "any") searches.push(searchWeb(query, signal).catch(() => []));
 	if (source !== "wikimedia") searches.push(searchOpenI(query, kind, signal).catch(() => []));
 	if (source !== "clinical") searches.push(searchCommons(query, signal).catch(() => []));
-	const [article, lists] = await Promise.all([wikipedia, Promise.all(searches)]);
+	const web = source === "any" ? searchWeb(query, signal).catch(() => []) : Promise.resolve([]);
+	const [article, lists, found] = await Promise.all([wikipedia, Promise.all(searches), web]);
 	const mixed: Candidate[] = [];
 	const add = (c: Candidate | undefined) => {
 		if (c && mixed.length < limit && !mixed.some((m) => m.url === c.url)) mixed.push(c);
 	};
+	// Trusted first, keeping a couple of places for Google Images when it found any.
+	const trustedRoom = found.length > 0 ? limit - Math.min(2, found.length) : limit;
+	const trusted: Candidate[] = [];
+	const addTrusted = (c: Candidate | undefined) => {
+		if (c && trusted.length < trustedRoom && !trusted.some((m) => m.url === c.url)) trusted.push(c);
+	};
 	// Leave room for at least a couple of search results after the article's images.
-	for (const c of article.slice(0, Math.max(1, limit - 2))) add(c);
+	for (const c of article.slice(0, Math.max(1, trustedRoom - 2))) addTrusted(c);
 	for (let i = 0; i < Math.max(0, ...lists.map((l) => l.length)); i++) {
-		for (const l of lists) add(l[i]);
+		for (const l of lists) addTrusted(l[i]);
 	}
+	for (const c of trusted) add(c);
+	for (const c of found) add(c);
 	return mixed;
 }
 
@@ -365,7 +379,7 @@ export async function searchWeb(query: string, signal?: AbortSignal): Promise<Ca
 	if (!key) return [];
 	const q = query.trim().toLowerCase();
 	const kept = index().searches[q];
-	if (kept && Date.now() - kept.at < SEARCH_KEEP_MS) return kept.found;
+	if (kept && Date.now() - kept.at < SEARCH_KEEP_MS) return kept.found.filter((c) => !SOCIAL.test(c.credit));
 
 	const url = new URL("https://serpapi.com/search.json");
 	url.search = new URLSearchParams({ engine: "google_images", q: query, api_key: key, safe: "active" }).toString();
@@ -377,6 +391,8 @@ export async function searchWeb(query: string, signal?: AbortSignal): Promise<Ca
 		const thumbnail = typeof r.thumbnail === "string" && r.thumbnail.startsWith("https://") ? r.thumbnail : "";
 		if (!original && !thumbnail) continue;
 		if (r.is_product || (Number(r.original_width) > 0 && Number(r.original_width) < 200)) continue;
+		// Never from social media: anyone can post there, and copies are often wrong or blurry.
+		if ([r.link, r.original, r.thumbnail].some((u) => SOCIAL_HOST.test(hostOf(u))) || SOCIAL.test(plain(r.source))) continue;
 		const id = createHash("sha256").update(original || thumbnail).digest("hex").slice(0, 24);
 		index().photos[id] = { original, thumbnail };
 		const site = plain(r.source) || hostOf(r.link) || "the web";
@@ -392,6 +408,11 @@ export async function searchWeb(query: string, signal?: AbortSignal): Promise<Ca
 	saveIndex();
 	return out;
 }
+
+/** Social media sites, by name and by web address (including their image servers). */
+const SOCIAL = /\b(facebook|instagram|pinterest|twitter|tiktok|reddit|linkedin|threads|tumblr)\b|^x$|^x\.com/i;
+const SOCIAL_HOST =
+	/(^|\.)(facebook\.com|fb\.com|fbcdn\.net|instagram\.com|cdninstagram\.com|pinterest\.[a-z.]+|pinimg\.com|twitter\.com|x\.com|twimg\.com|tiktok\.com|tiktokcdn\.com|reddit\.com|redd\.it|redditmedia\.com|linkedin\.com|licdn\.com|threads\.net|tumblr\.com)$/i;
 
 function hostOf(link: unknown): string {
 	try {

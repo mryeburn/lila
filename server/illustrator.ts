@@ -20,6 +20,7 @@ import {
 	KINDS,
 	searchCommons,
 	searchImages,
+	TRUSTED_SOURCES,
 	searchOpenI,
 	searchWikipedia,
 } from "./images.ts";
@@ -231,12 +232,13 @@ async function pickImage(
 	const leniency = req.lastWasDrawing
 		? "The last picture in this lesson was a drawing, so pick a real image unless none of them is about this topic at all."
 		: "It doesn't have to show exactly the same detail as the text, as long as it is accurate and helps the learner picture this part of the topic.";
+	const trust = ` ${TRUSTED_SOURCES}`;
 	const list = pool.map((c, i) => `${i + 1}. ${c.title.slice(0, 220)} [${c.credit.slice(0, 60)}]`).join("\n");
 	const shortReply = await ask(
 		runtime,
 		model,
 		"You pick real images for a learning app. Real images (photos, scans, professional illustrations) are much better for learners than drawn flowcharts.",
-		`${describe({ ...req, shown: undefined })}\n\nImages available:\n${list}\n\nWhich images would best illustrate this part of the lesson? ${leniency}\nReply with up to 3 numbers, best first, like: 7, 2, 15\nReply 0 only if none of them relates to this part.`,
+		`${describe({ ...req, shown: undefined })}\n\nImages available:\n${list}\n\nWhich images would best illustrate this part of the lesson? ${leniency}${trust}\nReply with up to 3 numbers, best first, like: 7, 2, 15\nReply 0 only if none of them relates to this part.`,
 		signal,
 	);
 	const shortlist = [...new Set((shortReply.match(/\d+/g) ?? []).map(Number))]
@@ -254,7 +256,7 @@ async function pickImage(
 			type: "text",
 			text: `${describe({ ...req, shown: undefined })}\n\nThese images were shortlisted.${
 				vision ? " Each is shown after its description." : " You can't see them, so go by the descriptions."
-			} Choose the one that best illustrates this part of the lesson. ${leniency}\n\nReply with only: <number> | <short, accurate caption that says what to look at, at most 25 words>\nReply 0 if none is accurate and relevant.`,
+			} Choose the one that best illustrates this part of the lesson. ${leniency}${trust}\n\nReply with only: <number> | <short, accurate caption that says what to look at, at most 25 words>\nReply 0 if none is accurate and relevant.`,
 		},
 	];
 	for (const [i, c] of shortlist.entries()) {

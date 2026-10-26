@@ -25,6 +25,8 @@ export interface TutorStore {
 	state: TutorState | null;
 	items: TranscriptItem[];
 	streaming: string | null;
+	/** What the tutor is busy with ("Finding a photo…"), if known. */
+	activity: string | null;
 	interactions: Record<string, PendingInteraction>;
 	lessons: LessonSummary[];
 	/** The learner's folders, and how the lesson list is sorted. */
@@ -60,6 +62,7 @@ export function useTutor(): TutorStore {
 	const [state, setState] = useState<TutorState | null>(null);
 	const [items, setItems] = useState<TranscriptItem[]>([]);
 	const [streaming, setStreaming] = useState<string | null>(null);
+	const [activity, setActivity] = useState<string | null>(null);
 	const [interactions, setInteractions] = useState<Record<string, PendingInteraction>>({});
 	const [lessons, setLessons] = useState<LessonSummary[]>([]);
 	const [library, setLibrary] = useState<{ folders: string[]; sort: LessonSort }>({ folders: [], sort: "newest" });
@@ -116,6 +119,9 @@ export function useTutor(): TutorStore {
 						break;
 					case "streaming":
 						setStreaming(msg.text);
+						break;
+					case "activity":
+						setActivity(msg.text);
 						break;
 					case "interaction":
 						setInteractions((cur) => ({ ...cur, [msg.interaction.id]: msg.interaction }));
@@ -175,6 +181,7 @@ export function useTutor(): TutorStore {
 		state,
 		items,
 		streaming,
+		activity,
 		interactions,
 		lessons,
 		library,
