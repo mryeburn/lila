@@ -182,9 +182,6 @@ async function handle(ws: WebSocket, msg: ClientMessage) {
 		case "add_link":
 			void addResource(ws, () => readLink(msg.url));
 			break;
-		case "illustrate":
-			tutor.requestPicture(msg.id);
-			break;
 		case "picture_broken":
 			tutor.pictureBroken(msg.id, msg.picture);
 			break;

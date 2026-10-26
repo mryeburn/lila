@@ -16,26 +16,22 @@ const STARTERS = [
 	"Teach me the basics of music theory",
 ];
 
-// Short tutor messages ("Great, let's start") don't get a picture button.
-const MIN_PICTURE_TEXT = 120;
 // A tutor message at least this long is a teaching section: invite questions after it.
 const MIN_SECTION_TEXT = 400;
 
-/** Pictures the app added under a tutor message or quiz, and the button to ask for one. */
+/** Pictures the app added under a tutor message or quiz. */
 function Pictures({
 	id,
 	pictures,
 	drawing,
-	canAsk,
 	store,
 }: {
 	id: string;
 	pictures?: string[];
 	drawing?: boolean;
-	canAsk: boolean;
 	store: TutorStore;
 }) {
-	if (!pictures?.length && !drawing && !canAsk) return null;
+	if (!pictures?.length && !drawing) return null;
 	return (
 		<div className="app-pictures">
 			{pictures?.map((picture) => (
@@ -43,15 +39,7 @@ function Pictures({
 					<Markdown text={picture} onBroken={() => store.send({ type: "picture_broken", id, picture })} />
 				</div>
 			))}
-			{drawing ? (
-				<div className="picture-button drawing">🖼 Making a picture…</div>
-			) : (
-				canAsk && (
-					<button type="button" className="picture-button" onClick={() => store.send({ type: "illustrate", id })}>
-						🖼 {pictures?.length ? "Show me another picture" : "Show me a picture"}
-					</button>
-				)
-			)}
+			{drawing && <div className="picture-button drawing">🖼 Making a picture…</div>}
 		</div>
 	);
 }
@@ -121,13 +109,7 @@ function Item({
 			return (
 				<div className="msg tutor">
 					<TutorText text={item.text} />
-					<Pictures
-						id={item.id}
-						pictures={item.pictures}
-						drawing={item.drawing}
-						canAsk={item.text.trim().length >= MIN_PICTURE_TEXT}
-						store={store}
-					/>
+					<Pictures id={item.id} pictures={item.pictures} drawing={item.drawing} store={store} />
 				</div>
 			);
 		case "error":
@@ -170,7 +152,7 @@ function Item({
 				);
 			const pictures =
 				item.kind === "quiz" ? (
-					<Pictures id={item.id} pictures={item.pictures} drawing={item.drawing} canAsk store={store} />
+					<Pictures id={item.id} pictures={item.pictures} drawing={item.drawing} store={store} />
 				) : null;
 			if (pending?.kind === "graded")
 				return (

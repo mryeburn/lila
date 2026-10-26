@@ -988,12 +988,6 @@ export class Tutor implements InteractionBroker {
 		this.draw(id, quizContent(quiz), "explanation", false);
 	}
 
-	/** The learner pressed "Show me a picture". */
-	requestPicture(id: string): void {
-		const part = this.partFor(id);
-		if (part) this.draw(id, part.content, part.purpose, true);
-	}
-
 	/** The page couldn't draw a picture (a diagram with a syntax error, or a photo that won't load). */
 	pictureBroken(id: string, picture: string): void {
 		const pics = this.pictures;
