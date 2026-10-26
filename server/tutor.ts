@@ -1,10 +1,12 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import * as fs from "node:fs";
+import path from "node:path";
 import { type AppSettings, loadSettings, SESSIONS_DIR, saveSettings, WORKSPACE_DIR } from "./config.ts";
 import { Conversation, type ConversationEvent, STALLED, type ToolDefinition } from "./engine/conversation.ts";
 import { LessonFile } from "./engine/lessonfile.ts";
 import type { AiModels } from "./engine/models.ts";
 import { buildLibrary, illustrate } from "./illustrator.ts";
+import { cleanName, type Library, type LessonSort, lessonKey, loadLibrary, saveLibrary } from "./library.ts";
 import { type Candidate, createImageTool, IMAGE_URL } from "./images.ts";
 import { CLIP_BLOCK, CLIP_EVERY_LESSON, createVideoTool } from "./videos.ts";
 import { asMessage, type Material, parseMessage } from "./materials.ts";
@@ -50,6 +52,9 @@ const FEEDBACK_LENGTH = 80;
 const SHOWN = ["answered", "cancelled", "paused"];
 /** What the page sends when the learner has no questions after a section. */
 const CONTINUE_TEXT = "No questions, please continue.";
+const REVIEW_TEXT = "I'm back to review this lesson. Please give me a new quiz on it.";
+const REVIEW_NOTE =
+	'\n\n<app-note>The learner opened this finished lesson again to review it. Start a new part with the heading "Review quiz". Ask 5 to 8 new quiz_question cards, one at a time, covering the lesson\'s main areas. Every question must be new: never repeat or reword a question already asked anywhere in this lesson. Only ask about what this lesson taught. About 1 in 4 can be a picture question. After the last answer, write the heading "How you did" and compare briefly, area by area, with how they did in the lesson\'s Final quiz. Don\'t reteach the lesson.</app-note>';
 
 /** Identifies one part of a tutor message (the text between its cards). */
 function partId(msg: any, part: number): string {
@@ -635,7 +640,7 @@ export class Tutor implements InteractionBroker {
 			thinkingLevels: this.session?.supportsThinking() ? this.session.getAvailableThinkingLevels() : [],
 			busy: this.busy,
 			lessonPath: this.session?.sessionFile ?? null,
-			lessonTitle: this.session?.sessionName ?? null,
+			lessonTitle: (this.session && this.titleOf(this.session.sessionFile, this.session.sessionName)) || null,
 			error: this.lastError ?? null,
 			retrying: this.retrying,
 			webPhotos: !!this.settings.photoSearchKey,
@@ -647,7 +652,7 @@ export class Tutor implements InteractionBroker {
 		send({ type: "transcript", items: this.transcript() });
 		send({ type: "streaming", text: this.streamingText });
 		for (const { interaction } of this.pending.values()) send({ type: "interaction", interaction });
-		send({ type: "lessons", lessons: await this.lessons() });
+		send(await this.lessonsMessage());
 	}
 
 	private async pushState(): Promise<void> {
@@ -723,14 +728,110 @@ export class Tutor implements InteractionBroker {
 	}
 
 	async lessons(): Promise<LessonSummary[]> {
-		return LessonFile.list(SESSIONS_DIR)
+		const { sort, folderOf } = this.library;
+		const lessons = LessonFile.list(SESSIONS_DIR)
 			.filter((s) => s.messageCount > 0)
-			.sort((a, b) => b.modified.getTime() - a.modified.getTime())
 			.map((s) => ({
 				path: s.path,
-				title: s.name || s.firstMessage.slice(0, 80) || "Untitled lesson",
+				title: this.titleOf(s.path, s.name) ?? (s.firstMessage.slice(0, 80) || "Untitled lesson"),
 				modified: s.modified.toISOString(),
+				folder: folderOf[lessonKey(s.path)],
 			}));
+		if (sort === "name") return lessons.sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base", numeric: true }));
+		const newest = (a: LessonSummary, b: LessonSummary) => b.modified.localeCompare(a.modified);
+		return lessons.sort(sort === "oldest" ? (a, b) => newest(b, a) : newest);
+	}
+
+	private async lessonsMessage(): Promise<ServerMessage> {
+		const lessons = await this.lessons();
+		return { type: "lessons", lessons, folders: this.library.folders, sort: this.library.sort };
+	}
+
+	// ── Organising lessons (the lesson list's right-click menu) ──────────────
+
+	private library: Library = loadLibrary();
+
+	/** A lesson's title: the learner's own name for it, else the one it was given. */
+	private titleOf(lessonPath: string | undefined, name: string | undefined): string | undefined {
+		return (lessonPath && this.library.names[lessonKey(lessonPath)]) || name || undefined;
+	}
+
+	/** Only lesson files LILA itself keeps can be renamed, moved or deleted. */
+	private isLesson(lessonPath: string): boolean {
+		const resolved = path.resolve(lessonPath);
+		return path.dirname(resolved) === path.resolve(SESSIONS_DIR) && resolved.endsWith(".jsonl") && fs.existsSync(resolved);
+	}
+
+	private async libraryChanged(): Promise<void> {
+		saveLibrary(this.library);
+		this.broadcast(await this.lessonsMessage());
+		await this.pushState();
+	}
+
+	async deleteLesson(lessonPath: string): Promise<void> {
+		if (!this.isLesson(lessonPath)) return;
+		const open = this.session?.sessionFile && path.resolve(this.session.sessionFile) === path.resolve(lessonPath);
+		if (open) await this.openLesson();
+		fs.rmSync(lessonPath, { force: true });
+		fs.rmSync(lessonPath.replace(/\.jsonl$/, ".pictures.json"), { force: true });
+		const key = lessonKey(lessonPath);
+		delete this.library.names[key];
+		delete this.library.folderOf[key];
+		await this.libraryChanged();
+	}
+
+	async renameLesson(lessonPath: string, title: string): Promise<void> {
+		const name = cleanName(title);
+		if (!this.isLesson(lessonPath) || !name) return;
+		this.library.names[lessonKey(lessonPath)] = name;
+		await this.libraryChanged();
+	}
+
+	async moveLesson(lessonPath: string, folder: string | null): Promise<void> {
+		if (!this.isLesson(lessonPath)) return;
+		const key = lessonKey(lessonPath);
+		if (folder && this.library.folders.includes(folder)) this.library.folderOf[key] = folder;
+		else delete this.library.folderOf[key];
+		await this.libraryChanged();
+	}
+
+	/** Makes a folder, and moves a lesson into it when one is given. */
+	async newFolder(name: string, lessonPath?: string): Promise<void> {
+		const folder = cleanName(name);
+		if (!folder) return;
+		if (!this.library.folders.includes(folder)) this.library.folders.push(folder);
+		if (lessonPath && this.isLesson(lessonPath)) this.library.folderOf[lessonKey(lessonPath)] = folder;
+		await this.libraryChanged();
+	}
+
+	async renameFolder(from: string, to: string): Promise<void> {
+		const name = cleanName(to);
+		const lib = this.library;
+		if (!name || !lib.folders.includes(from) || (name !== from && lib.folders.includes(name))) return;
+		lib.folders = lib.folders.map((f) => (f === from ? name : f));
+		for (const [key, f] of Object.entries(lib.folderOf)) if (f === from) lib.folderOf[key] = name;
+		await this.libraryChanged();
+	}
+
+	/** Removes a folder; its lessons move back out to the main list, never deleted. */
+	async deleteFolder(name: string): Promise<void> {
+		const lib = this.library;
+		lib.folders = lib.folders.filter((f) => f !== name);
+		for (const [key, f] of Object.entries(lib.folderOf)) if (f === name) delete lib.folderOf[key];
+		await this.libraryChanged();
+	}
+
+	async sortLessons(sort: LessonSort): Promise<void> {
+		if (!["newest", "oldest", "name"].includes(sort)) return;
+		this.library.sort = sort;
+		await this.libraryChanged();
+	}
+
+	/** Opens a past lesson and starts a quiz on it with all-new questions. */
+	async reviewLesson(lessonPath: string): Promise<void> {
+		if (!this.isLesson(lessonPath)) return;
+		await this.openLesson(lessonPath);
+		await this.prompt(`${REVIEW_TEXT}${REVIEW_NOTE}`, REVIEW_TEXT);
 	}
 
 	// ── Lesson lifecycle ─────────────────────────────────────────────────────
@@ -790,7 +891,7 @@ export class Tutor implements InteractionBroker {
 		this.unsubscribe = session.subscribe((event) => this.onEvent(event));
 		this.broadcast({ type: "transcript", items: this.transcript() });
 		this.broadcast({ type: "streaming", text: null });
-		this.broadcast({ type: "lessons", lessons: await this.lessons() });
+		this.broadcast(await this.lessonsMessage());
 		await this.pushState();
 	}
 
@@ -1216,7 +1317,7 @@ export class Tutor implements InteractionBroker {
 				this.broadcast({ type: "transcript", items: this.transcript() });
 				this.broadcast({ type: "streaming", text: null });
 				void this.pushState();
-				void this.lessons().then((lessons) => this.broadcast({ type: "lessons", lessons }));
+				void this.lessonsMessage().then((msg) => this.broadcast(msg));
 				this.prepareNextSection();
 				break;
 			case "message_start":

@@ -4,6 +4,7 @@ import type { TranscriptItem } from "../../server/protocol.ts";
 import { AddResource, DropBox, isDroppable, sendDropped } from "./components/AddResource.tsx";
 import { AskCard, AskResult, QuestionsInvite, QuizCard, QuizResult } from "./components/Cards.tsx";
 import { KeyPopup } from "./components/KeyPopup.tsx";
+import { LessonList } from "./components/LessonList.tsx";
 import { Markdown } from "./components/Markdown.tsx";
 import { PartDivider, TutorText } from "./components/Parts.tsx";
 import { Settings } from "./components/Settings.tsx";
@@ -56,6 +57,10 @@ const START_QUIZ: Record<QuizPhase, { text: string; label: string }> = {
 	final: {
 		text: "Any questions about the lesson? Type your question here or start the final quiz.",
 		label: "Start the final quiz →",
+	},
+	review: {
+		text: "Any questions about the lesson? Type your question here or start the review quiz.",
+		label: "Start the review quiz →",
 	},
 };
 
@@ -189,17 +194,16 @@ function Item({
 	}
 }
 
-function relativeDate(iso: string) {
-	const d = new Date(iso);
-	const days = Math.floor((Date.now() - d.getTime()) / 86400000);
-	if (days < 1) return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-	if (days < 7) return d.toLocaleDateString([], { weekday: "short" });
-	return d.toLocaleDateString([], { month: "short", day: "numeric" });
+/** The lesson has reached its end ("What to learn next", or a review's "How you did"). */
+function lessonFinished(items: TranscriptItem[]): boolean {
+	return items.some(
+		(item) => item.kind === "assistant" && /^\s*(#{1,6}\s*|\*\*)\s*(what to learn next|how you did)/im.test(item.text),
+	);
 }
 
 export function App() {
 	const store = useTutor();
-	const { state, items, streaming, lessons, send, connected } = store;
+	const { state, items, streaming, send, connected } = store;
 	const [draft, setDraft] = useState("");
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -344,23 +348,7 @@ export function App() {
 				>
 					+ New lesson
 				</button>
-				<div className="lesson-list">
-					{lessons.length > 0 && <div className="list-label">Your lessons</div>}
-					{lessons.map((l) => (
-						<button
-							key={l.path}
-							type="button"
-							className={`lesson ${l.path === state?.lessonPath ? "current" : ""}`}
-							onClick={() => {
-								send({ type: "open_lesson", path: l.path });
-								setSidebarOpen(false);
-							}}
-						>
-							<span className="lesson-title">{l.title}</span>
-							<span className="lesson-date">{relativeDate(l.modified)}</span>
-						</button>
-					))}
-				</div>
+				<LessonList store={store} onOpened={() => setSidebarOpen(false)} />
 				{/* Checking for, offering and running updates all happen on this one button. */}
 				{store.update?.supported &&
 					(store.update.state === "available" ? (
@@ -514,6 +502,13 @@ export function App() {
 								onContinue={() => submit("No questions, please continue.")}
 								onAsk={(text) => submit(text, true)}
 							/>
+						)}
+						{!busy && state?.lessonPath && Object.keys(store.interactions).length === 0 && lessonFinished(items) && (
+							<div className="review-offer">
+								<button type="button" className="secondary" onClick={() => send({ type: "review_lesson", path: state.lessonPath! })}>
+									↻ Review this lesson with a new quiz
+								</button>
+							</div>
 						)}
 						{busy && state?.retrying && <div className="msg retry-msg">{state.retrying}</div>}
 						{busy && Object.keys(store.interactions).length === 0 && (streaming === null || streaming.trim() === "") && (

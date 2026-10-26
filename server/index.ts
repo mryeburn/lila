@@ -148,6 +148,30 @@ async function handle(ws: WebSocket, msg: ClientMessage) {
 		case "open_lesson":
 			await tutor.openLesson(msg.path);
 			break;
+		case "delete_lesson":
+			await tutor.deleteLesson(msg.path);
+			break;
+		case "rename_lesson":
+			await tutor.renameLesson(msg.path, msg.title);
+			break;
+		case "move_lesson":
+			await tutor.moveLesson(msg.path, msg.folder);
+			break;
+		case "new_folder":
+			await tutor.newFolder(msg.name, msg.path);
+			break;
+		case "rename_folder":
+			await tutor.renameFolder(msg.from, msg.to);
+			break;
+		case "delete_folder":
+			await tutor.deleteFolder(msg.name);
+			break;
+		case "sort_lessons":
+			await tutor.sortLessons(msg.sort);
+			break;
+		case "review_lesson":
+			void tutor.reviewLesson(msg.path);
+			break;
 		case "export_lesson": {
 			const state = await tutor.state();
 			const slug = (state.lessonTitle ?? "lesson").replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").slice(0, 50);

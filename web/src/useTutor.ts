@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
 	ClientMessage,
+	LessonSort,
 	LessonSummary,
 	LoginEvent,
 	LoginPrompt,
@@ -26,6 +27,8 @@ export interface TutorStore {
 	streaming: string | null;
 	interactions: Record<string, PendingInteraction>;
 	lessons: LessonSummary[];
+	/** The learner's folders, and how the lesson list is sorted. */
+	library: { folders: string[]; sort: LessonSort };
 	providers: ProviderInfo[];
 	models: ModelInfo[];
 	login: LoginFlow | null;
@@ -59,6 +62,7 @@ export function useTutor(): TutorStore {
 	const [streaming, setStreaming] = useState<string | null>(null);
 	const [interactions, setInteractions] = useState<Record<string, PendingInteraction>>({});
 	const [lessons, setLessons] = useState<LessonSummary[]>([]);
+	const [library, setLibrary] = useState<{ folders: string[]; sort: LessonSort }>({ folders: [], sort: "newest" });
 	const [providers, setProviders] = useState<ProviderInfo[]>([]);
 	const [models, setModels] = useState<ModelInfo[]>([]);
 	const [login, setLogin] = useState<LoginFlow | null>(null);
@@ -125,6 +129,7 @@ export function useTutor(): TutorStore {
 						break;
 					case "lessons":
 						setLessons(msg.lessons);
+						setLibrary({ folders: msg.folders ?? [], sort: msg.sort ?? "newest" });
 						break;
 					case "providers":
 						setProviders(msg.providers);
@@ -172,6 +177,7 @@ export function useTutor(): TutorStore {
 		streaming,
 		interactions,
 		lessons,
+		library,
 		providers,
 		models,
 		login,
