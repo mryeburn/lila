@@ -52,7 +52,11 @@ export interface LessonSummary {
 	path: string;
 	title: string;
 	modified: string;
+	/** The folder the learner put it in, if any. */
+	folder?: string;
 }
+
+export type LessonSort = "newest" | "oldest" | "name";
 
 export interface ProviderInfo {
 	id: string;
@@ -89,7 +93,7 @@ export type ServerMessage =
 	| { type: "streaming"; text: string | null }
 	| { type: "interaction"; interaction: PendingInteraction }
 	| { type: "interaction_done"; id: string }
-	| { type: "lessons"; lessons: LessonSummary[] }
+	| { type: "lessons"; lessons: LessonSummary[]; folders: string[]; sort: LessonSort }
 	| { type: "providers"; providers: ProviderInfo[]; models: ModelInfo[] }
 	| { type: "login_prompt"; id: string; prompt: LoginPrompt }
 	| { type: "login_event"; event: LoginEvent }
@@ -117,6 +121,16 @@ export type ClientMessage =
 	| { type: "logout"; provider: string }
 	| { type: "add_file"; name: string; data: string }
 	| { type: "add_link"; url: string }
+	/** The lesson list's right-click menu. */
+	| { type: "delete_lesson"; path: string }
+	| { type: "rename_lesson"; path: string; title: string }
+	| { type: "move_lesson"; path: string; folder: string | null }
+	| { type: "new_folder"; name: string; path?: string }
+	| { type: "rename_folder"; from: string; to: string }
+	| { type: "delete_folder"; name: string }
+	| { type: "sort_lessons"; sort: LessonSort }
+	/** Opens a past lesson and starts a quiz on it with all-new questions. */
+	| { type: "review_lesson"; path: string }
 	/** A picture the app added couldn't be shown. */
 	| { type: "picture_broken"; id: string; picture: string }
 	| { type: "check_update" }

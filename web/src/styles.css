@@ -1441,3 +1441,113 @@ p:has(> .photo-failed) + p:has(> em:only-child) {
 .phase-quiz .card.pending {
 	background: var(--quiz-tint);
 }
+
+/* ── Lesson list: folders and the right-click menu ───────────────────────── */
+
+.folder-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	width: 100%;
+	text-align: left;
+	background: none;
+	border: none;
+	padding: 8px;
+	border-radius: 8px;
+	font-size: 14px;
+	font-weight: 600;
+}
+.folder-row:hover {
+	background: var(--surface-2);
+}
+.folder-row .lesson-title {
+	flex: 1;
+}
+.folder-arrow {
+	width: 12px;
+	color: var(--muted);
+}
+.lesson.in-folder {
+	padding-left: 26px;
+}
+.folder-empty {
+	padding: 4px 8px 8px 26px;
+	font-size: 13px;
+	color: var(--muted);
+}
+.context-menu {
+	position: fixed;
+	z-index: 30;
+	min-width: 230px;
+	max-height: calc(100vh - 16px);
+	overflow-y: auto;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+	padding: 6px;
+	display: flex;
+	flex-direction: column;
+}
+.context-menu hr {
+	border: none;
+	border-top: 1px solid var(--border);
+	margin: 4px 2px;
+}
+.menu-item {
+	text-align: left;
+	background: none;
+	border: none;
+	padding: 7px 10px;
+	border-radius: 6px;
+	font-size: 14px;
+}
+.menu-item:hover {
+	background: var(--surface-2);
+}
+.menu-item.chosen {
+	font-weight: 600;
+}
+.menu-item.danger {
+	color: var(--wrong);
+}
+.menu-label {
+	padding: 6px 10px 2px;
+	font-size: 12px;
+	color: var(--muted);
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+}
+.small-modal {
+	width: min(420px, 100%);
+}
+.small-modal .text-input {
+	width: 100%;
+	box-sizing: border-box;
+	font-size: 16px;
+	padding: 9px 11px;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	margin-top: 12px;
+	background: var(--surface);
+	color: inherit;
+}
+.dialog-buttons {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	margin-top: 18px;
+}
+.danger-button {
+	background: var(--wrong);
+	color: white;
+	border: none;
+	border-radius: 8px;
+	padding: 8px 16px;
+	font-weight: 600;
+}
+.review-offer {
+	display: flex;
+	justify-content: center;
+	margin: 8px 0 24px;
+}
