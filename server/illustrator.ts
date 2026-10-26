@@ -254,7 +254,7 @@ async function pickImage(
 			type: "text",
 			text: `${describe({ ...req, shown: undefined })}\n\nThese images were shortlisted.${
 				vision ? " Each is shown after its description." : " You can't see them, so go by the descriptions."
-			} Choose the one that best illustrates this part of the lesson. ${leniency}\n\nReply with only: <number> | <short, accurate caption that says what to look at>\nReply 0 if none is accurate and relevant.`,
+			} Choose the one that best illustrates this part of the lesson. ${leniency}\n\nReply with only: <number> | <short, accurate caption that says what to look at, at most 25 words>\nReply 0 if none is accurate and relevant.`,
 		},
 	];
 	for (const [i, c] of shortlist.entries()) {
@@ -272,8 +272,18 @@ async function pickImage(
 		return undefined;
 	}
 	log(`${searched}; pool ${pool.length}; chose "${chosen.title.slice(0, 80)}" (${chosen.credit.slice(0, 60)})`);
-	const caption = (m?.[2] ?? chosen.title).replace(/[[\]]/g, "").trim().slice(0, 200);
+	const caption = shortCaption((m?.[2] ?? chosen.title).replace(/[[\]]/g, "").trim());
 	return `![${caption}](${chosen.url} "${chosen.credit.replace(/"/g, "'")}")`;
+}
+
+/** A caption of at most `max` characters, cut after a whole sentence (or word) rather than mid-word. */
+export function shortCaption(text: string, max = 200): string {
+	if (text.length <= max) return text;
+	const head = text.slice(0, max + 1);
+	const sentence = Math.max(head.lastIndexOf(". "), head.lastIndexOf("; "), head.lastIndexOf(": "));
+	if (sentence >= max / 3) return head.slice(0, sentence + 1).replace(/[;:]$/, ".");
+	const word = head.lastIndexOf(" ");
+	return `${head.slice(0, word > 0 ? word : max).replace(/[\s,;:.]+$/, "")}…`;
 }
 
 async function ask(
