@@ -48,7 +48,7 @@ export interface IllustrateRequest {
 	label?: string;
 }
 
-const GATHER = `You collect real teaching images for a lesson in a medical learning app. Learners are doctors and medical students.
+const GATHER = `You collect real teaching images for a lesson in a learning app. Lessons can be on any topic, for learners from grade school to doctors.
 
 Name the English Wikipedia articles most likely to contain good teaching images for this lesson: the main article for the topic first, then 3 to 5 closely related ones (anatomy, physiology, investigations, signs, treatments). For glaucoma, for example: Glaucoma, Optic disc, Aqueous humour, Gonioscopy, Visual field test, Trabecular meshwork. Then give 2 to 4 short Wikimedia Commons search phrases for images the articles may lack (clinical photos, scans, histology).
 
@@ -92,7 +92,7 @@ export async function buildLibrary(
 
 const KIND_NAMES = Object.keys(KINDS).join(", ");
 
-const FIND = `You find one real image for a lesson in a medical learning app: a professional illustration, labelled diagram, chart, X-ray or scan, clinical photo, or micrograph. Learners are doctors and medical students.
+const FIND = `You find one real image for a lesson in a learning app: a real photo, professional illustration, labelled diagram, chart, map, or (for medical topics) an X-ray, scan, clinical photo or micrograph. Lessons can be on any topic, for learners from grade school to doctors.
 
 Reply with exactly these three lines and nothing else:
 ARTICLE: <the English Wikipedia article most likely to contain a good image for this part, e.g. "Renin-angiotensin system">
@@ -101,7 +101,7 @@ KIND: <one of: ${KIND_NAMES}>
 
 If you were told a picture is optional and no image would genuinely help, reply NONE instead.`;
 
-const DRAW = `You draw one picture for a lesson in a medical learning app. Learners are doctors and medical students, so it must be accurate and clinically sound.
+const DRAW = `You draw one picture for a lesson in a learning app. Lessons can be on any topic, for learners from grade school to doctors, so it must be accurate.
 
 Reply with exactly one of these, and nothing else:
 1. A diagram in a \`\`\`mermaid code block: flowchart, decision tree, timeline or sequence diagram.
@@ -235,7 +235,7 @@ async function pickImage(
 	const shortReply = await ask(
 		runtime,
 		model,
-		"You pick real images for a medical learning app. Real images (photos, scans, professional illustrations) are much better for learners than drawn flowcharts.",
+		"You pick real images for a learning app. Real images (photos, scans, professional illustrations) are much better for learners than drawn flowcharts.",
 		`${describe({ ...req, shown: undefined })}\n\nImages available:\n${list}\n\nWhich images would best illustrate this part of the lesson? ${leniency}\nReply with up to 3 numbers, best first, like: 7, 2, 15\nReply 0 only if none of them relates to this part.`,
 		signal,
 	);
@@ -264,7 +264,7 @@ async function pickImage(
 			if (img) content.push({ type: "image", ...img });
 		}
 	}
-	const reply = await ask(runtime, model, "You pick real images for a medical learning app.", content, signal);
+	const reply = await ask(runtime, model, "You pick real images for a learning app.", content, signal);
 	const m = /^\s*(\d+)\s*(?:\|\s*(.+))?$/m.exec(reply);
 	const chosen = m ? shortlist[Number(m[1]) - 1] : undefined;
 	if (!chosen) {

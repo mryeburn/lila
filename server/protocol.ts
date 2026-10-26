@@ -117,8 +117,6 @@ export type ClientMessage =
 	| { type: "logout"; provider: string }
 	| { type: "add_file"; name: string; data: string }
 	| { type: "add_link"; url: string }
-	/** "Show me a picture" under a tutor message or answered quiz. */
-	| { type: "illustrate"; id: string }
 	/** A picture the app added couldn't be shown. */
 	| { type: "picture_broken"; id: string; picture: string }
 	| { type: "check_update" }
