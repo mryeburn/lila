@@ -60,6 +60,10 @@ export type ConversationEvent =
 
 /** Busy AI servers ("Overloaded") usually recover within a minute or two. */
 const RETRY = { maxRetries: 6, baseDelayMs: 3000, maxDelayMs: 30_000 };
+/** How long the AI may send nothing before LILA gives up on that attempt and tries again. */
+const STALL_MS = Number(process.env.LILA_STALL_MS) || 90_000;
+/** The error recorded for a reply that went quiet part-way. */
+export const STALLED = "The AI stopped responding part-way through its reply.";
 
 export interface ConversationOptions {
 	models: { streamSimple: Models["streamSimple"] };
@@ -307,7 +311,8 @@ export class Conversation {
 		let retried = 0;
 		while (true) {
 			const message = await this.stream(signal);
-			const retry = isRetryableAssistantError(message) && retried < RETRY.maxRetries && !signal.aborted;
+			const retryable = isRetryableAssistantError(message) || message.errorMessage === STALLED;
+			const retry = retryable && retried < RETRY.maxRetries && !signal.aborted;
 			if (!retry) {
 				this.add(message, true);
 				if (retried > 0) this.emit({ type: "auto_retry_end", success: message.stopReason !== "error" });
@@ -343,13 +348,29 @@ export class Conversation {
 		};
 		const level = this._thinkingLevel;
 		let started = false;
+		// The AI sometimes goes quiet part-way through a reply. Rather than wait
+		// forever, give up on this attempt once nothing has arrived for a while.
+		const attempt = new AbortController();
+		const stop = () => attempt.abort();
+		signal.addEventListener("abort", stop, { once: true });
+		let stalled = false;
+		let timer: NodeJS.Timeout | undefined;
+		const watch = () => {
+			clearTimeout(timer);
+			timer = setTimeout(() => {
+				stalled = true;
+				attempt.abort();
+			}, STALL_MS);
+		};
 		try {
+			watch();
 			const response = this.models.streamSimple(model, context, {
-				signal,
+				signal: attempt.signal,
 				reasoning: level === "off" ? undefined : level,
 				sessionId: this.file.id,
 			});
 			for await (const event of response) {
+				watch();
 				if (event.type === "start") {
 					started = true;
 					if (onUpdate) onUpdate(event.partial);
@@ -360,12 +381,21 @@ export class Conversation {
 				}
 			}
 			const message = await response.result();
+			if (stalled && !signal.aborted) return failed(STALLED);
 			if (!started && !onUpdate) this.emit({ type: "message_start", message });
+			const cut = message.stopReason === "aborted" || message.stopReason === "error";
 			// Saved with any broken tool arguments already mended, so the lesson shows them.
-			const content = message.content.map((b) => (b.type === "toolCall" ? recoverArguments(b) : b));
+			// A reply cut short keeps its text but not its half-written cards, which would never come.
+			const content = message.content
+				.filter((b) => !(cut && b.type === "toolCall"))
+				.map((b) => (b.type === "toolCall" ? recoverArguments(b) : b));
 			return { ...message, content, thinkingLevel: level };
 		} catch (err) {
+			if (stalled && !signal.aborted) return failed(STALLED);
 			return failed((err as Error).message, signal.aborted);
+		} finally {
+			clearTimeout(timer);
+			signal.removeEventListener("abort", stop);
 		}
 	}
 

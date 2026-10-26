@@ -1,7 +1,7 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import * as fs from "node:fs";
 import { type AppSettings, loadSettings, SESSIONS_DIR, saveSettings, WORKSPACE_DIR } from "./config.ts";
-import { Conversation, type ConversationEvent, type ToolDefinition } from "./engine/conversation.ts";
+import { Conversation, type ConversationEvent, STALLED, type ToolDefinition } from "./engine/conversation.ts";
 import { LessonFile } from "./engine/lessonfile.ts";
 import type { AiModels } from "./engine/models.ts";
 import { buildLibrary, illustrate } from "./illustrator.ts";
@@ -42,6 +42,8 @@ const APP_NOTE = /\s*<app-note>[\s\S]*?<\/app-note>\s*$/;
 const MIN_SECTION_LENGTH = 400;
 /** After this many pre-test answers, the tutor is told to move on to the plan. */
 const PRETEST_ENOUGH = 5;
+// A tutor reply at least this long, after the pre-test, is teaching (pre-test explanations are short).
+const TEACHING_LENGTH = 2000;
 /** Written feedback on an open-ended answer is at least this long. */
 const FEEDBACK_LENGTH = 80;
 /** Outcomes of a quiz or question card the learner actually saw. */
@@ -110,6 +112,7 @@ export function findPlan(texts: string[]): Plan | undefined {
 
 /** An AI service error, in words the learner can act on. */
 export function friendlyError(raw: string): string {
+	if (raw === STALLED) return "The AI stopped responding, so the lesson paused. Nothing is lost. Click Try again.";
 	if (/overloaded|server_busy|too many requests|rate.?limit|capacity|(?<![0-9])(429|500|502|503|504|529)(?![0-9])/i.test(raw)) {
 		return "Claude's servers are too busy right now, so the lesson paused. Nothing is lost. Wait a minute, then click Try again.";
 	}
@@ -465,6 +468,8 @@ export class Tutor implements InteractionBroker {
 		if (!wrapping) return undefined;
 		const plan = this.plan();
 		if (!plan) {
+			// Taught without writing a plan: there's nothing to check the sections against.
+			if (this.teachingStarted()) return undefined;
 			this.wrapUpRefusals++;
 			return `Not shown: you haven't written the learning plan or taught anything yet. Finish the pre-test now: write "Pre-test complete" with what the learner already knows, then "Your learning plan", then teach each section in order. Only after the last section, start the Final quiz.`;
 		}
@@ -477,6 +482,13 @@ export class Tutor implements InteractionBroker {
 	/** True once the tutor has summed up the pre-test or written the plan. */
 	private pretestDone(): boolean {
 		return this.assistantTexts().some((t) => t.split("\n").some((l) => HEADING.test(l) && /pre-?test complete|learning plan/i.test(l)));
+	}
+
+	/** True once the tutor has taught something: a "Section N" heading, or a long teaching reply after the pre-test. */
+	private teachingStarted(): boolean {
+		const texts = this.assistantTexts();
+		if (texts.some((t) => t.split("\n").some((l) => SECTION_HEADING.test(l)))) return true;
+		return this.quizAnswers() >= 3 && texts.some((t) => t.length >= TEACHING_LENGTH);
 	}
 
 	/** Quiz questions the learner has answered so far. */
@@ -494,6 +506,8 @@ export class Tutor implements InteractionBroker {
 	private whereWeAre(): string {
 		const plan = this.plan();
 		if (!plan) {
+			if (this.teachingStarted())
+				return 'You were teaching the lesson\'s sections. Carry on with the next one under its own "Section N: name" heading, then the Final quiz.';
 			if (this.pretestDone()) return "You had finished the pre-test. Write \"Your learning plan\" if you haven't yet, then teach Section 1.";
 			return `You were giving the pre-test (${this.quizAnswers()} questions answered so far). Carry on with it, keeping it to about ${PRETEST_ENOUGH} questions in all, then write "Pre-test complete", then "Your learning plan", then teach Section 1.`;
 		}
@@ -534,7 +548,10 @@ export class Tutor implements InteractionBroker {
 	/** After a section, when the learner has no questions: what to teach next. */
 	private nextSectionNote(): string {
 		const plan = this.plan();
-		if (!plan) return "";
+		if (!plan) {
+			if (!this.teachingStarted()) return "";
+			return `\n\n<app-note>You started teaching without writing "Your learning plan". Carry on with the next section under its own heading "Section N: name", one section per reply. Once every section is taught, start the Final quiz under the heading "Final quiz".</app-note>`;
+		}
 		const left = this.untaught(plan);
 		if (left.length === 0)
 			return `\n\n<app-note>Every section is taught: start the Final quiz now. Open it by telling the learner the teaching part is done and it's time to see how much they've learned. Make about 1 in 4 of its questions picture questions, some with a real find_image photo.</app-note>`;
@@ -579,7 +596,9 @@ export class Tutor implements InteractionBroker {
 		if (!plan) {
 			// This answer isn't saved yet.
 			const n = this.quizAnswers() + 1;
-			if (this.pretestDone() || n < PRETEST_ENOUGH) return undefined;
+			if (this.pretestDone() || n < 3) return undefined;
+			if (n < PRETEST_ENOUGH)
+				return `Note from the LILA app: when the pre-test ends, before any teaching, write "Pre-test complete" with its summary, then "Your learning plan" as a numbered list, then teach Section 1 under the heading "Section 1: name".`;
 			return `Note from the LILA app: that's ${n} pre-test questions, which is enough. Don't ask more. Now write "Pre-test complete" with what the learner already knows, then "Your learning plan", then teach Section 1.`;
 		}
 		const left = this.untaught(plan);
@@ -1175,8 +1194,11 @@ export class Tutor implements InteractionBroker {
 				}
 				break;
 			case "auto_retry_start": {
-				const { attempt, maxAttempts } = event as any;
-				this.retrying = `Claude's servers are busy right now. Trying again (${attempt} of ${maxAttempts})…`;
+				const { attempt, maxAttempts, errorMessage } = event as any;
+				this.retrying =
+					errorMessage === STALLED
+						? `The AI stopped responding. Trying again (${attempt} of ${maxAttempts})…`
+						: `Claude's servers are busy right now. Trying again (${attempt} of ${maxAttempts})…`;
 				void this.pushState();
 				break;
 			}
