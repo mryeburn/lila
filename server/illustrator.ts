@@ -259,12 +259,11 @@ async function pickImage(
 			} Choose the one that best illustrates this part of the lesson. ${leniency}${trust}\n\nReply with only: <number> | <short, accurate caption that says what to look at, at most 25 words>\nReply 0 if none is accurate and relevant.`,
 		},
 	];
+	const thumbs = vision ? await Promise.all(shortlist.map((c) => fetchThumb(c.thumb, signal))) : [];
 	for (const [i, c] of shortlist.entries()) {
 		content.push({ type: "text", text: `\nImage ${i + 1}: ${c.title}\nSource: ${c.credit}` });
-		if (vision) {
-			const img = await fetchThumb(c.thumb, signal);
-			if (img) content.push({ type: "image", ...img });
-		}
+		const img = thumbs[i];
+		if (img) content.push({ type: "image", ...img });
 	}
 	const reply = await ask(runtime, model, "You pick real images for a learning app.", content, signal);
 	const m = /^\s*(\d+)\s*(?:\|\s*(.+))?$/m.exec(reply);
