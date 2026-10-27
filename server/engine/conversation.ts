@@ -268,9 +268,12 @@ export class Conversation {
 			prepared.partial = undefined;
 			if (reply.stopReason === "error" || reply.stopReason === "aborted") return;
 			const calls = reply.content.filter((b): b is ToolCall => b.type === "toolCall");
-			// A card has to be shown live, so the reply that asks for it is written live too.
-			if (calls.some((c) => !tools.includes(c.name))) return;
 			keep(reply);
+			// A card has to be shown live: the reply is ready, and its tools run once the learner is there.
+			if (calls.some((c) => !tools.includes(c.name))) {
+				prepared.calls = { calls, step };
+				return;
+			}
 			if (calls.length === 0) {
 				prepared.finished = true;
 				return;
@@ -308,6 +311,8 @@ export class Conversation {
 		if (prepared.partial) show(prepared.partial, true);
 		await prepared.done;
 		prepared.adopted = undefined;
+		if (signal.aborted) return;
+		if (prepared.calls) await this.runTools(prepared.calls.calls, signal, prepared.calls.step);
 		if (signal.aborted) return;
 		// Not finished ahead (a card, an error, or a message typed meanwhile): carry on live.
 		if (!prepared.finished || this.queued.length > 0) await this.run(false);
@@ -431,9 +436,17 @@ export class Conversation {
 		const sequential =
 			calls.length < 2 || calls.some((c) => this.tools.find((t) => t.name === c.name)?.executionMode === "sequential");
 		if (sequential) {
+			// Searches start straight away, so they run while the learner answers the cards before them.
+			const early = new Map<string, Promise<ToolResultMessage>>();
 			for (const call of calls) {
+				const tool = this.tools.find((t) => t.name === call.name);
+				if (tool && tool.executionMode !== "sequential") early.set(call.id, this.runTool(call, signal, true, step));
+			}
+			for (const call of calls) {
+				const started = early.get(call.id);
 				// Stopped: the rest never run, and the AI is told so next time.
-				if (signal.aborted) this.add(toolResult(call, errorResult("Not run: the learner stopped the lesson."), true));
+				if (started) this.add(await started);
+				else if (signal.aborted) this.add(toolResult(call, errorResult("Not run: the learner stopped the lesson."), true));
 				else this.add(await this.runTool(call, signal, true, step));
 			}
 		} else {
@@ -509,6 +522,8 @@ interface Prepared {
 	adopted: ((message: Message, partial?: boolean) => void) | undefined;
 	/** Whether the whole reply was written ahead. */
 	finished: boolean;
+	/** The last reply's tools, when it has cards: they run once the learner sends the message. */
+	calls?: { calls: ToolCall[]; step: Step | undefined };
 	done: Promise<void>;
 }
 
