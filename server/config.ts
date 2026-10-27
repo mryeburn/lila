@@ -20,6 +20,8 @@ export interface AppSettings {
 	thinkingLevel?: string;
 	/** SerpApi key, for photos from Google Images. */
 	photoSearchKey?: string;
+	/** false: the tutor runs the lesson by itself, without LILA directing each step. */
+	guidedSteps?: boolean;
 }
 
 export function ensureDirs(): void {

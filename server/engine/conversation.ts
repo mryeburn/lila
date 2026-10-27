@@ -65,6 +65,13 @@ const STALL_MS = Number(process.env.LILA_STALL_MS) || 90_000;
 /** The error recorded for a reply that went quiet part-way. */
 export const STALLED = "The AI stopped responding part-way through its reply.";
 
+/** One step of the lesson, chosen by LILA before a reply: what to do, and with which tools. */
+export interface Step {
+	name: string;
+	note: string;
+	tools: string[];
+}
+
 export interface ConversationOptions {
 	models: { streamSimple: Models["streamSimple"] };
 	file: LessonFile;
@@ -72,13 +79,23 @@ export interface ConversationOptions {
 	thinkingLevel: ModelThinkingLevel;
 	systemPrompt: string;
 	tools: ToolDefinition<any, any>[];
+	/** Picks the step the next reply should take, from the lesson so far (none: the tutor is free). */
+	director?: (messages: Message[]) => Step | undefined;
+	/** What the tutor is told when a card isn't part of the step. */
+	offStep?: (tool: string, step: Step) => string;
 }
+
+/** After this many off-step cards in a row, LILA lets the next one through rather than stall the lesson. */
+const MAX_OFF_STEP = 2;
 
 export class Conversation {
 	private readonly models: ConversationOptions["models"];
 	private readonly file: LessonFile;
 	private readonly systemPrompt: string;
 	private readonly tools: ToolDefinition<any, any>[];
+	private readonly director: ConversationOptions["director"];
+	private readonly offStep: NonNullable<ConversationOptions["offStep"]>;
+	private offStepInARow = 0;
 	private readonly listeners = new Set<(event: ConversationEvent) => void>();
 	private history: Message[];
 	private _model: Model<Api> | undefined;
@@ -95,6 +112,8 @@ export class Conversation {
 		this.file = options.file;
 		this.systemPrompt = options.systemPrompt;
 		this.tools = options.tools;
+		this.director = options.director;
+		this.offStep = options.offStep ?? ((tool, step) => `Not shown: ${tool} isn't part of this step. ${step.note}`);
 		this.history = options.file.messages();
 		this._model = options.model;
 		this._thinkingLevel = options.thinkingLevel;
@@ -236,10 +255,16 @@ export class Conversation {
 		};
 		// A few rounds at most: a reply, its searches, the reply that uses them.
 		for (let round = 0; round < 4 && !signal.aborted; round++) {
-			const reply = await this.stream(signal, history, (partial) => {
-				prepared.partial = partial;
-				prepared.adopted?.(partial, true);
-			});
+			const step = this.director?.(history);
+			const reply = await this.stream(
+				signal,
+				history,
+				(partial) => {
+					prepared.partial = partial;
+					prepared.adopted?.(partial, true);
+				},
+				step,
+			);
 			prepared.partial = undefined;
 			if (reply.stopReason === "error" || reply.stopReason === "aborted") return;
 			const calls = reply.content.filter((b): b is ToolCall => b.type === "toolCall");
@@ -252,7 +277,7 @@ export class Conversation {
 			}
 			for (const call of calls) {
 				if (signal.aborted) return;
-				keep(await this.runTool(call, signal, false));
+				keep(await this.runTool(call, signal, false, step));
 			}
 		}
 	}
@@ -295,10 +320,11 @@ export class Conversation {
 		if (start) this.emit({ type: "agent_start" });
 		while (!signal.aborted) {
 			for (const message of this.queued.splice(0)) this.add(message);
-			const reply = await this.reply(signal);
+			const step = this.director?.(this.history);
+			const reply = await this.reply(signal, step);
 			if (reply.stopReason === "error" || reply.stopReason === "aborted") break;
 			const calls = reply.content.filter((b): b is ToolCall => b.type === "toolCall");
-			if (calls.length > 0) await this.runTools(calls, signal);
+			if (calls.length > 0) await this.runTools(calls, signal, step);
 			// The tutor carries on after its tools, or to read a message typed meanwhile.
 			if (calls.length === 0 && this.queued.length === 0) break;
 		}
@@ -307,10 +333,10 @@ export class Conversation {
 	}
 
 	/** One reply from the AI, tried again (with growing waits) while its servers are busy. */
-	private async reply(signal: AbortSignal): Promise<AssistantMessage> {
+	private async reply(signal: AbortSignal, step?: Step): Promise<AssistantMessage> {
 		let retried = 0;
 		while (true) {
-			const message = await this.stream(signal);
+			const message = await this.stream(signal, this.history, undefined, step);
 			const retryable = isRetryableAssistantError(message) || message.errorMessage === STALLED;
 			const retry = retryable && retried < RETRY.maxRetries && !signal.aborted;
 			if (!retry) {
@@ -336,12 +362,14 @@ export class Conversation {
 		signal: AbortSignal,
 		messages: Message[] = this.history,
 		onUpdate?: (partial: AssistantMessage) => void,
+		step?: Step,
 	): Promise<AssistantMessage> {
 		const model = this._model;
 		if (!model) return failed("No AI model is selected. Sign in under Settings.");
 		const context = {
 			systemPrompt: this.systemPrompt,
-			messages,
+			// The step goes on the end of the last message, for this reply only (it isn't saved).
+			messages: step ? withNote(messages, `<app-note>This step of the lesson: ${step.note}</app-note>`) : messages,
 			tools: this.tools.map(
 				(t): Tool => ({ name: t.name, description: t.description, parameters: t.parameters }),
 			),
@@ -389,7 +417,7 @@ export class Conversation {
 			const content = message.content
 				.filter((b) => !(cut && b.type === "toolCall"))
 				.map((b) => (b.type === "toolCall" ? recoverArguments(b) : b));
-			return { ...message, content, thinkingLevel: level };
+			return { ...message, content, thinkingLevel: level, ...(step ? { step: step.name } : {}) };
 		} catch (err) {
 			if (stalled && !signal.aborted) return failed(STALLED);
 			return failed((err as Error).message, signal.aborted);
@@ -399,25 +427,29 @@ export class Conversation {
 		}
 	}
 
-	private async runTools(calls: ToolCall[], signal: AbortSignal): Promise<void> {
+	private async runTools(calls: ToolCall[], signal: AbortSignal, step?: Step): Promise<void> {
 		const sequential =
 			calls.length < 2 || calls.some((c) => this.tools.find((t) => t.name === c.name)?.executionMode === "sequential");
 		if (sequential) {
 			for (const call of calls) {
 				// Stopped: the rest never run, and the AI is told so next time.
 				if (signal.aborted) this.add(toolResult(call, errorResult("Not run: the learner stopped the lesson."), true));
-				else this.add(await this.runTool(call, signal));
+				else this.add(await this.runTool(call, signal, true, step));
 			}
 		} else {
-			for (const result of await Promise.all(calls.map((call) => this.runTool(call, signal)))) this.add(result);
+			for (const result of await Promise.all(calls.map((call) => this.runTool(call, signal, true, step)))) this.add(result);
 		}
 	}
 
-	private async runTool(call: ToolCall, signal: AbortSignal, announce = true): Promise<ToolResultMessage> {
+	private async runTool(call: ToolCall, signal: AbortSignal, announce = true, step?: Step): Promise<ToolResultMessage> {
 		const tool = this.tools.find((t) => t.name === call.name);
 		let result: ToolResult;
 		let isError = false;
-		if (!tool) {
+		const off = !!step && !!tool && !step.tools.includes(call.name) && this.offStepInARow < MAX_OFF_STEP;
+		if (tool && step) this.offStepInARow = off ? this.offStepInARow + 1 : 0;
+		if (off) {
+			result = { content: [{ type: "text", text: this.offStep(call.name, step!) }], details: { status: "off-step", step: step!.name } };
+		} else if (!tool) {
 			result = errorResult(`Tool ${call.name} not found`);
 			isError = true;
 		} else {
@@ -518,6 +550,14 @@ function firstObjectEnd(text: string): number {
 		else if (c === "}" && --depth === 0) return i + 1;
 	}
 	return -1;
+}
+
+/** The messages with a note added to the end of the last one (a copy; the lesson is unchanged). */
+function withNote(messages: Message[], note: string): Message[] {
+	const last = messages.at(-1);
+	if (!last || (last.role !== "user" && last.role !== "toolResult")) return messages;
+	const content = typeof last.content === "string" ? [{ type: "text" as const, text: last.content }] : last.content;
+	return [...messages.slice(0, -1), { ...last, content: [...content, { type: "text" as const, text: `\n\n${note}` }] } as Message];
 }
 
 function userMessage(text: string): UserMessage {

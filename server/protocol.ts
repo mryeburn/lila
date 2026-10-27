@@ -38,6 +38,8 @@ export interface TutorState {
 	model: { provider: string; id: string; name: string } | null;
 	thinkingLevel: string;
 	thinkingLevels: string[];
+	/** Whether LILA directs each step of the lesson. */
+	guidedSteps: boolean;
 	busy: boolean;
 	lessonPath: string | null;
 	lessonTitle: string | null;
@@ -116,6 +118,7 @@ export type ClientMessage =
 	| { type: "list_providers" }
 	| { type: "set_model"; provider: string; modelId: string }
 	| { type: "set_thinking"; level: string }
+	| { type: "set_guided"; on: boolean }
 	| { type: "set_photo_key"; key: string }
 	| { type: "login_start"; provider: string; method: "api_key" | "oauth" }
 	| { type: "login_reply"; id: string; value: string }

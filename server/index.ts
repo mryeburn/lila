@@ -187,6 +187,9 @@ async function handle(ws: WebSocket, msg: ClientMessage) {
 		case "set_thinking":
 			await tutor.setThinking(msg.level);
 			break;
+		case "set_guided":
+			await tutor.setGuided(!!msg.on);
+			break;
 		case "set_photo_key":
 			await tutor.setPhotoKey(msg.key);
 			break;
