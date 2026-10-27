@@ -253,6 +253,24 @@ export function Settings({ store, onClose }: { store: TutorStore; onClose: () =>
 					</section>
 				)}
 
+				{state && (
+					<section>
+						<h3>Lesson steps</h3>
+						<p className="muted-text">
+							When on, LILA tells the AI exactly which step of the lesson comes next, so it keeps to the order: pre-test,
+							plan, each section, Final quiz, then the summary.
+						</p>
+						<div className="segmented">
+							<button type="button" className={state.guidedSteps ? "on" : ""} onClick={() => send({ type: "set_guided", on: true })}>
+								LILA directs each step
+							</button>
+							<button type="button" className={state.guidedSteps ? "" : "on"} onClick={() => send({ type: "set_guided", on: false })}>
+								AI decides
+							</button>
+						</div>
+					</section>
+				)}
+
 				<WebPhotosSection store={store} />
 				<PictureLogSection store={store} />
 				<section className="about">

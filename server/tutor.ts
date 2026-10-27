@@ -5,6 +5,7 @@ import { type AppSettings, loadSettings, SESSIONS_DIR, saveSettings, WORKSPACE_D
 import { Conversation, type ConversationEvent, STALLED, type ToolDefinition } from "./engine/conversation.ts";
 import { LessonFile } from "./engine/lessonfile.ts";
 import type { AiModels } from "./engine/models.ts";
+import { nextStep, offStep } from "./director.ts";
 import { buildLibrary, illustrate } from "./illustrator.ts";
 import { cleanName, type Library, type LessonSort, lessonKey, loadLibrary, saveLibrary } from "./library.ts";
 import { type Candidate, createImageTool, IMAGE_URL } from "./images.ts";
@@ -666,6 +667,7 @@ export class Tutor implements InteractionBroker {
 			model: model ? { provider: model.provider, id: model.id, name: model.name ?? model.id } : null,
 			thinkingLevel: this.session?.thinkingLevel ?? this.settings.thinkingLevel ?? "medium",
 			thinkingLevels: this.session?.supportsThinking() ? this.session.getAvailableThinkingLevels() : [],
+			guidedSteps: this.settings.guidedSteps !== false,
 			busy: this.busy,
 			lessonPath: this.session?.sessionFile ?? null,
 			lessonTitle: (this.session && this.titleOf(this.session.sessionFile, this.session.sessionName)) || null,
@@ -923,6 +925,12 @@ export class Tutor implements InteractionBroker {
 				createImageTool(() => this.session?.model?.input?.includes("image") ?? false),
 				createVideoTool(() => this.assistantTexts().join("\n").match(CLIP_BLOCK)?.length ?? 0),
 			],
+			// LILA directs each step of the lesson (unless turned off in Settings).
+			director: (messages) =>
+				this.settings.guidedSteps === false
+					? undefined
+					: nextStep(messages, !!this.openQuestion || learnerAsked(messages as any[], messages.length)),
+			offStep,
 		});
 		this.session = session;
 		if (session.model) this.lastModel = session.model;
@@ -1242,6 +1250,13 @@ export class Tutor implements InteractionBroker {
 		await this.pushState();
 	}
 
+	/** Whether LILA directs each step of the lesson. */
+	async setGuided(on: boolean): Promise<void> {
+		this.settings = { ...this.settings, guidedSteps: on };
+		saveSettings(this.settings);
+		await this.pushState();
+	}
+
 	async setThinking(level: string): Promise<void> {
 		if (!THINKING_LEVELS.includes(level as Thinking)) return;
 		this.settings = { ...this.settings, thinkingLevel: level };
@@ -1313,6 +1328,7 @@ export class Tutor implements InteractionBroker {
 					if (block.type === "toolCall") out.push(`${time} tutor calls ${block.name}: ${clip(JSON.stringify(block.arguments ?? {}), 200)}`);
 				}
 				if (msg.stopReason && msg.stopReason !== "toolUse" && msg.stopReason !== "stop") out.push(`${time} (reply ended: ${msg.stopReason})`);
+				if (msg.step) out.push(`${time} (step: ${msg.step})`);
 			} else if (msg.role === "toolResult") {
 				out.push(`${time} result: ${msg.details?.status ?? (msg.isError ? "error" : "?")}: ${clip(textOf(msg.content), 200)}`);
 			}
