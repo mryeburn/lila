@@ -27,6 +27,8 @@ export const IMAGE_URL = /(?:https:\/\/|\/photos\/)[^\s)"]+/g;
 
 const USER_AGENT = "LILA/1.0 (https://github.com/mryeburn/lila)";
 const MAX_RESULTS = 6;
+/** How long one library may take before the search goes on without it. */
+const SOURCE_WAIT_MS = 12_000;
 
 export interface Candidate {
 	url: string;
@@ -90,6 +92,8 @@ export function createImageTool(canSeeImages: () => boolean): ToolDefinition<typ
 
 			const content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [];
 			const vision = canSeeImages();
+			// All the previews at once, not one after another.
+			const thumbs = vision ? await Promise.all(mixed.map((c) => fetchThumb(c.thumb, signal))) : [];
 			content.push({
 				type: "text",
 				text: `Found ${mixed.length} image${mixed.length === 1 ? "" : "s"} for "${params.query}".${vision ? " Each is shown below its description; check it really shows what you need." : " You can't see them, so rely on the descriptions and only use one whose description clearly matches."}`,
@@ -99,10 +103,8 @@ export function createImageTool(canSeeImages: () => boolean): ToolDefinition<typ
 					type: "text",
 					text: `\nImage ${i + 1}: ${c.title}\nCredit: ${c.credit}\nMarkdown to embed it: ![SHORT CAPTION](${c.url} "${c.credit.replace(/"/g, "'")}")`,
 				});
-				if (vision) {
-					const img = await fetchThumb(c.thumb, signal);
-					if (img) content.push({ type: "image", ...img });
-				}
+				const img = thumbs[i];
+				if (img) content.push({ type: "image", ...img });
 			}
 			return { content, details: { query: params.query, count: mixed.length } };
 		},
@@ -128,12 +130,12 @@ export async function searchImages(
 ): Promise<Candidate[]> {
 	const limit = options.limit ?? MAX_RESULTS;
 	const kind = KINDS[kindName as keyof typeof KINDS] ?? "";
-	const wikipedia =
-		source !== "clinical" ? searchWikipedia(options.article || query, signal).catch(() => []) : Promise.resolve([]);
+	// Each library gets a few seconds; a slow one is left out rather than holding up the lesson.
+	const wikipedia = source !== "clinical" ? inTime(searchWikipedia(options.article || query, signal)) : Promise.resolve([]);
 	const searches: Promise<Candidate[]>[] = [];
-	if (source !== "wikimedia") searches.push(searchOpenI(query, kind, signal).catch(() => []));
-	if (source !== "clinical") searches.push(searchCommons(query, signal).catch(() => []));
-	const web = source === "any" ? searchWeb(query, signal).catch(() => []) : Promise.resolve([]);
+	if (source !== "wikimedia") searches.push(inTime(searchOpenI(query, kind, signal)));
+	if (source !== "clinical") searches.push(inTime(searchCommons(query, signal)));
+	const web = source === "any" ? inTime(searchWeb(query, signal)) : Promise.resolve([]);
 	const [article, lists, found] = await Promise.all([wikipedia, Promise.all(searches), web]);
 	const mixed: Candidate[] = [];
 	const add = (c: Candidate | undefined) => {
@@ -153,6 +155,15 @@ export async function searchImages(
 	for (const c of trusted) add(c);
 	for (const c of found) add(c);
 	return mixed;
+}
+
+/** A library's results, or none if it fails or takes longer than SOURCE_WAIT_MS. */
+function inTime(search: Promise<Candidate[]>): Promise<Candidate[]> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const late = new Promise<Candidate[]>((resolve) => {
+		timer = setTimeout(() => resolve([]), SOURCE_WAIT_MS);
+	});
+	return Promise.race([search.catch(() => []), late]).finally(() => clearTimeout(timer));
 }
 
 // Images in an article that are decoration, not teaching material.
@@ -297,7 +308,7 @@ export async function fetchThumb(url: string, signal?: AbortSignal): Promise<{ d
 	try {
 		const res = await fetch(url, {
 			headers: { "user-agent": USER_AGENT },
-			signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000),
+			signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(8_000)]) : AbortSignal.timeout(8_000),
 		});
 		const mimeType = (res.headers.get("content-type") ?? "").split(";")[0];
 		if (!res.ok || !/^image\/(jpeg|png|gif|webp)$/.test(mimeType)) return undefined;

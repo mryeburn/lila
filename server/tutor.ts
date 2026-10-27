@@ -58,6 +58,9 @@ const ACTIVITY: Record<string, string> = {
 	ask_learner: "Preparing a question…",
 	find_image: "Finding a photo…",
 	find_video: "Finding a video clip…",
+	// Not tools: what happens between them.
+	answer: "Checking your answer…",
+	feedback: "Writing feedback on your answer…",
 };
 const REVIEW_TEXT = "I'm back to review this lesson. Please give me a new quiz on it.";
 const REVIEW_NOTE =
@@ -406,6 +409,7 @@ export class Tutor implements InteractionBroker {
 		const model = this.session?.model;
 		this.feedbackDue = null;
 		if (!due || !model) return undefined;
+		this.setActivity("feedback");
 		// What the lesson taught, so the feedback matches it (the most recent part if it's long).
 		const taught = this.assistantTexts().join("\n\n").slice(-40_000);
 		try {
@@ -683,8 +687,8 @@ export class Tutor implements InteractionBroker {
 	/** What the tutor is busy with, for the page's spinner ("Finding a photo…"); null when just working. */
 	private activity: string | null = null;
 
-	private setActivity(toolName: string | null): void {
-		const text = (toolName && ACTIVITY[toolName]) || null;
+	private setActivity(step: string | null): void {
+		const text = (step && ACTIVITY[step]) || null;
 		if (text === this.activity) return;
 		this.activity = text;
 		this.broadcast({ type: "activity", text });
@@ -1369,8 +1373,10 @@ export class Tutor implements InteractionBroker {
 					if (block.type === "text") text += block.text;
 				}
 				this.streamingText = text;
+				// While the AI is still thinking, keep saying what it's thinking about.
 				const lastBlock = (partial.content ?? []).at(-1);
-				this.setActivity(lastBlock?.type === "toolCall" ? lastBlock.name : null);
+				if (lastBlock?.type === "toolCall") this.setActivity(lastBlock.name);
+				else if (lastBlock?.type === "text") this.setActivity(null);
 				const now = Date.now();
 				if (now - this.lastStreamPush > 50) {
 					this.lastStreamPush = now;
@@ -1384,7 +1390,9 @@ export class Tutor implements InteractionBroker {
 			}
 			// falls through
 			case "message_end":
-				if (event.type === "tool_execution_end") this.setActivity(null);
+				// After the learner answers a card, the tutor's next step is to look at the answer.
+				if (event.type === "tool_execution_end")
+					this.setActivity((event as any).result?.details?.status === "answered" ? "answer" : null);
 				if (event.type === "message_end" && (event as any).message?.role === "assistant") {
 					const call = ((event as any).message.content ?? []).find((b: any) => b.type === "toolCall");
 					this.setActivity(call?.name ?? null);
