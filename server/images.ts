@@ -27,6 +27,34 @@ export const IMAGE_HOSTS = ["upload.wikimedia.org", "openi.nlm.nih.gov"];
 export const IMAGE_URL = /(?:https:\/\/|\/photos\/)[^\s)"]+/g;
 
 const USER_AGENT = "LILA/1.0 (https://github.com/mryeburn/lila)";
+
+/**
+ * Some libraries refuse LILA's own requests (Wikipedia and Commons answered
+ * 503 and Open-i a web page) yet answer the learner's web browser. Once a
+ * library refuses, its searches go through the open page instead.
+ */
+export type BrowserFetch = (url: string, as: "json" | "image", waitMs: number) => Promise<any>;
+let browserFetch: BrowserFetch | undefined;
+export function setBrowserFetch(fn: BrowserFetch): void {
+	browserFetch = fn;
+}
+/** Libraries whose requests can go through the page (they allow it), and the ones that refused LILA. */
+const BROWSER_HOSTS = ["en.wikipedia.org", "commons.wikimedia.org", "upload.wikimedia.org", "openi.nlm.nih.gov"];
+const refused = new Set<string>();
+
+/** Fetches with LILA's own request, or through the page for a library that refused LILA. */
+async function viaServerOrBrowser<T>(url: string, as: "json" | "image", waitMs: number, own: () => Promise<T>): Promise<T> {
+	const host = new URL(url).host;
+	const canUsePage = !!browserFetch && BROWSER_HOSTS.includes(host);
+	if (canUsePage && refused.has(host)) return browserFetch!(url, as, waitMs);
+	try {
+		return await own();
+	} catch (err) {
+		if (!canUsePage || (err as Error)?.name === "TimeoutError" || (err as Error)?.name === "AbortError") throw err;
+		refused.add(host);
+		return browserFetch!(url, as, waitMs);
+	}
+}
 const MAX_RESULTS = 6;
 /** Once this long has passed and a few images have arrived, the search stops waiting for slower libraries. */
 const ENOUGH_WAIT_MS = 10_000;
@@ -307,12 +335,15 @@ export async function searchWikipedia(query: string, signal?: AbortSignal, max =
 }
 
 export async function getJson(url: string, signal?: AbortSignal, waitMs = 20_000): Promise<any> {
-	const res = await fetch(url, {
-		headers: { "user-agent": USER_AGENT, accept: "application/json" },
-		signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(waitMs)]) : AbortSignal.timeout(waitMs),
+	return viaServerOrBrowser(url, "json", waitMs, async () => {
+		const res = await fetch(url, {
+			headers: { "user-agent": USER_AGENT, accept: "application/json" },
+			signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(waitMs)]) : AbortSignal.timeout(waitMs),
+		});
+		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		if (!/json/.test(res.headers.get("content-type") ?? "")) throw new Error("sent a web page, not results");
+		return res.json();
 	});
-	if (!res.ok) throw new Error(`HTTP ${res.status}`);
-	return res.json();
 }
 
 export async function searchCommons(query: string, signal?: AbortSignal): Promise<Candidate[]> {
@@ -399,15 +430,16 @@ export async function fetchThumbs(urls: string[], signal?: AbortSignal): Promise
 
 export async function fetchThumb(url: string, signal?: AbortSignal): Promise<{ data: string; mimeType: string } | undefined> {
 	try {
-		const res = await fetch(url, {
-			headers: { "user-agent": USER_AGENT },
-			signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(8_000)]) : AbortSignal.timeout(8_000),
+		const thumb: { data: string; mimeType: string } = await viaServerOrBrowser(url, "image", 8_000, async () => {
+			const res = await fetch(url, {
+				headers: { "user-agent": USER_AGENT },
+				signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(8_000)]) : AbortSignal.timeout(8_000),
+			});
+			if (!res.ok) throw new Error(`HTTP ${res.status}`);
+			return { data: Buffer.from(await res.arrayBuffer()).toString("base64"), mimeType: (res.headers.get("content-type") ?? "").split(";")[0] };
 		});
-		const mimeType = (res.headers.get("content-type") ?? "").split(";")[0];
-		if (!res.ok || !/^image\/(jpeg|png|gif|webp)$/.test(mimeType)) return undefined;
-		const buf = Buffer.from(await res.arrayBuffer());
-		if (buf.length > 1_500_000) return undefined;
-		return { data: buf.toString("base64"), mimeType };
+		if (!/^image\/(jpeg|png|gif|webp)$/.test(thumb.mimeType) || thumb.data.length > 2_000_000) return undefined;
+		return thumb;
 	} catch {
 		return undefined;
 	}

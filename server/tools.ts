@@ -81,7 +81,7 @@ export interface InteractionBroker {
 	 * The learner's open-ended answer still has no written feedback before
 	 * this card. `write`: the tutor was already told once, so LILA writes it.
 	 */
-	feedbackMissing?(toolCallId: string): { question: string; write: boolean } | undefined;
+	feedbackMissing?(toolCallId: string): { question: string } | undefined;
 	/** Writes the feedback the tutor still owes on an open-ended answer (see feedbackMissing). */
 	writeFeedback?(signal: AbortSignal | undefined): Promise<string | undefined>;
 	/** The learner answered an open-ended question; the tutor owes them feedback on it. */
@@ -108,12 +108,10 @@ export interface QuizAbout {
 
 const unanswered = (asked: string) =>
 	`Not shown: the learner asked "${asked}" and you haven't answered it. Your next reply must START with a clear, full written answer to that question, before any tool call. Only after that, ask this again.`;
-const noFeedback = (question: string) =>
-	`Not shown: the learner answered your question "${question}" and you haven't given feedback on their answer. Your next message must be text only, with no tool call: your feedback on their answer (what they got right, anything important they missed, and any mistakes corrected). Only after that, ask this question again. Never type a question as plain text for the learner to answer.`;
 const wroteFeedback = (feedback: string) =>
 	`Not shown yet: the learner still had no feedback on their last answer, so LILA wrote it and showed it to them:\n\n${feedback}\n\nDon't repeat it. Now ask this question again.`;
 
-/** What to do when an open-ended answer is still owed feedback: send the card back, or show LILA's own feedback. */
+/** When an open-ended answer is still owed feedback, LILA writes and shows it before the card. */
 async function owedFeedback(
 	broker: InteractionBroker,
 	toolCallId: string,
@@ -122,12 +120,9 @@ async function owedFeedback(
 ): Promise<ToolResult<any> | undefined> {
 	const owed = broker.feedbackMissing?.(toolCallId);
 	if (!owed) return undefined;
-	if (owed.write) {
-		const feedback = await broker.writeFeedback?.(signal);
-		if (feedback) return textResult(wroteFeedback(feedback), { status: "feedback", feedback, question });
-		return undefined;
-	}
-	return textResult(noFeedback(owed.question), { status: "unanswered", question });
+	const feedback = await broker.writeFeedback?.(signal);
+	if (feedback) return textResult(wroteFeedback(feedback), { status: "feedback", feedback, question });
+	return undefined;
 }
 const HELD =
 	"Not shown: the learner wrote something before this came up. Respond to what they wrote first, then ask this again if it still fits.";

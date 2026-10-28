@@ -235,7 +235,7 @@ function stepFor(p: Progress): Step | undefined {
 					: `Then ${wrapUp}`;
 		return {
 			name: `feedback on open answer ${p.openAnswers}`,
-			note: `The learner just answered an open-ended question. Start with written feedback on their answer: what they got right, anything important they missed, and any mistakes corrected. ${then}`,
+			note: `The learner just answered an open-ended question. Your reply must START with written feedback on their answer, before any card: what they got right, anything important they missed, and any mistakes corrected. ${then}`,
 			tools: p.openAnswers < OPEN_MAX ? [ASK_TOOL, ...SEARCH] : SEARCH,
 		};
 	}
