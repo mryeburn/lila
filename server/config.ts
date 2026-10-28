@@ -22,6 +22,8 @@ export interface AppSettings {
 	photoSearchKey?: string;
 	/** false: the tutor runs the lesson by itself, without LILA directing each step. */
 	guidedSteps?: boolean;
+	/** The learner's country (two letters, from the computer's language settings), for video searches. */
+	region?: string;
 }
 
 export function ensureDirs(): void {

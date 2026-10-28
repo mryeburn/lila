@@ -217,12 +217,13 @@ export function AskCard({ ask, onAnswer }: { ask: Ask; onAnswer: (answer: AskAns
 				<Header label="Your tutor asks" question={ask.question} details={ask.details} />
 				<textarea
 					className="note"
-					rows={3}
+					rows={5}
 					placeholder="Type your answer…"
 					value={text}
 					onChange={(e) => setText(e.target.value)}
 					onKeyDown={(e) => {
-						if (e.key === "Enter" && !e.shiftKey && text.trim()) {
+						// Enter starts a new line (answers can be long); Ctrl+Enter sends.
+						if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && text.trim()) {
 							e.preventDefault();
 							submit({ text });
 						}
@@ -231,6 +232,7 @@ export function AskCard({ ask, onAnswer }: { ask: Ask; onAnswer: (answer: AskAns
 					autoFocus
 				/>
 				<div className="card-actions">
+					<span className="muted-text">Press Send when you're done.</span>
 					<button type="button" className="primary" disabled={sent || !text.trim()} onClick={() => submit({ text })}>
 						Send
 					</button>

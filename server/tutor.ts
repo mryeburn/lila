@@ -1288,6 +1288,13 @@ export class Tutor implements InteractionBroker {
 		await this.pushState();
 	}
 
+	/** The learner's country, so video searches find videos that play there. */
+	async setRegion(region: string): Promise<void> {
+		if (!/^[A-Z]{2}$/.test(region) || this.settings.region === region) return;
+		this.settings = { ...this.settings, region };
+		saveSettings(this.settings);
+	}
+
 	/** Whether LILA directs each step of the lesson. */
 	async setGuided(on: boolean): Promise<void> {
 		this.settings = { ...this.settings, guidedSteps: on };
