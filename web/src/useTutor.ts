@@ -86,6 +86,11 @@ export function useTutor(): TutorStore {
 			ws.onopen = () => {
 				setConnected(true);
 				ws.send(JSON.stringify({ type: "list_providers" }));
+				// The country this computer is set to ("CA" from "en-CA"), so video searches suit where the learner is.
+				const region = navigator.languages
+					.map((l) => /-([A-Za-z]{2})\b/.exec(l)?.[1])
+					.find(Boolean);
+				if (region) ws.send(JSON.stringify({ type: "set_region", region: region.toUpperCase() }));
 			};
 			ws.onclose = () => {
 				setConnected(false);

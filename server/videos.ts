@@ -98,7 +98,9 @@ async function serp(params: Record<string, string>, signal?: AbortSignal): Promi
 }
 
 export async function searchVideos(query: string, signal?: AbortSignal): Promise<Video[]> {
-	const data = await serp({ engine: "youtube", search_query: query }, signal);
+	// Searched as from the learner's country, so country-blocked videos are less likely.
+	const region = loadSettings().region;
+	const data = await serp({ engine: "youtube", search_query: query, ...(region ? { gl: region.toLowerCase() } : {}) }, signal);
 	const out: Video[] = [];
 	for (const r of data?.video_results ?? []) {
 		const id = videoId(r.link);
@@ -119,6 +121,22 @@ function withLimit(text: Promise<string>, ms: number): Promise<string> {
 		timer = setTimeout(() => resolve(""), ms);
 	});
 	return Promise.race([text.catch(() => ""), late]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * Whether the video can be played inside another site. YouTube's oEmbed
+ * answers 401 when the owner has turned that off, and 404 when the video is
+ * gone or private. Free (not a SerpApi search). Unsure (no answer) counts as yes.
+ */
+export async function embeddable(id: string, signal?: AbortSignal): Promise<boolean> {
+	try {
+		const res = await fetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(`https://www.youtube.com/watch?v=${id}`)}`, {
+			signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(5000)]) : AbortSignal.timeout(5000),
+		});
+		return res.status !== 401 && res.status !== 403 && res.status !== 404;
+	} catch {
+		return true;
+	}
 }
 
 export async function transcript(id: string, signal?: AbortSignal): Promise<string> {
@@ -149,6 +167,11 @@ export function createVideoTool(clipsShown: () => number): ToolDefinition<typeof
 				return reply("The video search didn't work just now. Use a picture instead.", { status: "error" });
 			}
 			const start = Date.now();
+			// Only videos that can play inside LILA (checked for the first few, all at once).
+			const checked = videos.slice(0, 8);
+			const ok = await Promise.all(checked.map((v) => embeddable(v.id, signal)));
+			const blocked = checked.filter((_, i) => !ok[i]).length;
+			videos = [...checked.filter((_, i) => ok[i]), ...videos.slice(8)];
 			const found: string[] = [];
 			// Transcripts a few at a time, all at once (each costs one search, so no more than needed),
 			// and never more than a couple of rounds.
@@ -166,7 +189,7 @@ export function createVideoTool(clipsShown: () => number): ToolDefinition<typeof
 					);
 				}
 			}
-			const timing = `${((Date.now() - start) / 1000).toFixed(1)}s for ${next} transcripts, ${found.length} usable`;
+			const timing = `${((Date.now() - start) / 1000).toFixed(1)}s for ${next} transcripts, ${found.length} usable${blocked ? `, ${blocked} not playable outside YouTube skipped` : ""}`;
 			if (found.length === 0) {
 				return reply(`No usable video found for "${params.query}" (none had a transcript). Use a picture instead.`, { status: "none", query: params.query, timing });
 			}

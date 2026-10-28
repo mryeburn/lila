@@ -248,21 +248,54 @@ const clock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2,
 
 function VideoClip({ code }: { code: string }) {
 	const clip = parseClip(code);
+	const frame = useRef<HTMLIFrameElement>(null);
+	const [failed, setFailed] = useState(false);
+	// The player reports errors (removed, blocked in this country, not allowed on other sites)
+	// by message once asked to; then the clip is swapped for a note and a link.
+	useEffect(() => {
+		const onMessage = (e: MessageEvent) => {
+			if (e.source !== frame.current?.contentWindow) return;
+			try {
+				const data = typeof e.data === "string" ? JSON.parse(e.data) : e.data;
+				if (data?.event === "onError") setFailed(true);
+			} catch {
+				// Not one of the player's messages.
+			}
+		};
+		window.addEventListener("message", onMessage);
+		return () => window.removeEventListener("message", onMessage);
+	}, []);
 	if (!clip) return null;
+	const credit = `Clip ${clock(clip.start)}–${clock(clip.end)} from "${clip.title}"${clip.channel ? `, ${clip.channel}` : ""}, YouTube`;
+	if (failed) {
+		return (
+			<span className="video-clip video-unavailable">
+				<span>
+					This video can't be played here (it may be blocked in your country, or its owner doesn't allow it on other
+					sites).{" "}
+					<a href={`https://www.youtube.com/watch?v=${clip.id}&t=${clip.start}s`} target="_blank" rel="noreferrer noopener">
+						Try it on YouTube
+					</a>
+					.
+				</span>
+				<span className="photo-credit">{credit}</span>
+			</span>
+		);
+	}
 	// youtube-nocookie plays only from start to end and sets no tracking cookies until played.
-	const src = `https://www.youtube-nocookie.com/embed/${clip.id}?start=${clip.start}&end=${clip.end}&rel=0&modestbranding=1`;
+	const src = `https://www.youtube-nocookie.com/embed/${clip.id}?start=${clip.start}&end=${clip.end}&rel=0&modestbranding=1&enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}`;
 	return (
 		<span className="video-clip">
 			<iframe
+				ref={frame}
 				src={src}
 				title={clip.title || "Video clip"}
 				allow="accelerometer; encrypted-media; gyroscope; picture-in-picture"
 				allowFullScreen
 				referrerPolicy="strict-origin-when-cross-origin"
+				onLoad={() => frame.current?.contentWindow?.postMessage(JSON.stringify({ event: "listening", id: clip.id, channel: "widget" }), "*")}
 			/>
-			<span className="photo-credit">
-				Clip {clock(clip.start)}–{clock(clip.end)} from "{clip.title}"{clip.channel ? `, ${clip.channel}` : ""}, YouTube
-			</span>
+			<span className="photo-credit">{credit}</span>
 		</span>
 	);
 }

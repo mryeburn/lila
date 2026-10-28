@@ -15,7 +15,7 @@ import type { AiModels } from "./engine/models.ts";
 import type { Api, Context, ImageContent, Model, TextContent } from "@earendil-works/pi-ai";
 import {
 	type Candidate,
-	fetchThumb,
+	fetchThumbs,
 	IMAGE_URL,
 	KINDS,
 	searchCommons,
@@ -259,7 +259,7 @@ async function pickImage(
 			} Choose the one that best illustrates this part of the lesson. ${leniency}${trust}\n\nReply with only: <number> | <short, accurate caption that says what to look at, at most 25 words>\nReply 0 if none is accurate and relevant.`,
 		},
 	];
-	const thumbs = vision ? await Promise.all(shortlist.map((c) => fetchThumb(c.thumb, signal))) : [];
+	const thumbs = vision ? await fetchThumbs(shortlist.map((c) => c.thumb), signal) : [];
 	for (const [i, c] of shortlist.entries()) {
 		content.push({ type: "text", text: `\nImage ${i + 1}: ${c.title}\nSource: ${c.credit}` });
 		const img = thumbs[i];

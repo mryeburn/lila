@@ -89,16 +89,18 @@ export function createImageTool(canSeeImages: () => boolean): ToolDefinition<typ
 		parameters: Params,
 
 		async execute(_toolCallId, params, signal) {
-			const { found: mixed, timing } = await searchImagesTimed(params.query, params.source ?? "any", params.kind ?? "any", signal);
+			const { found: mixed, timing, allFailed } = await searchImagesTimed(params.query, params.source ?? "any", params.kind ?? "any", signal);
 			if (mixed.length === 0) {
-				const text = `No images found for "${params.query}". Try simpler or different words, or draw a diagram instead.`;
+				const text = allFailed
+					? "The picture libraries couldn't be reached just now, so no photo this time. Draw a diagram instead, and don't mention the missing photo."
+					: `No images found for "${params.query}". Try simpler or different words, or draw a diagram instead.`;
 				return { content: [{ type: "text" as const, text }], details: { query: params.query, count: 0, timing } };
 			}
 
 			const content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [];
 			const vision = canSeeImages();
 			// All the previews at once, not one after another.
-			const thumbs = vision ? await Promise.all(mixed.map((c) => fetchThumb(c.thumb, signal))) : [];
+			const thumbs = vision ? await fetchThumbs(mixed.map((c) => c.thumb), signal) : [];
 			content.push({
 				type: "text",
 				text: `Found ${mixed.length} image${mixed.length === 1 ? "" : "s"} for "${params.query}".${vision ? " Each is shown below its description; check it really shows what you need." : " You can't see them, so rely on the descriptions and only use one whose description clearly matches."}`,
@@ -143,7 +145,7 @@ export async function searchImagesTimed(
 	kindName: string,
 	signal?: AbortSignal,
 	options: { article?: string; limit?: number } = {},
-): Promise<{ found: Candidate[]; timing: string }> {
+): Promise<{ found: Candidate[]; timing: string; allFailed: boolean }> {
 	const limit = options.limit ?? MAX_RESULTS;
 	const kind = KINDS[kindName as keyof typeof KINDS] ?? "";
 	const libraries: Record<string, () => Promise<Candidate[]>> = {};
@@ -151,7 +153,7 @@ export async function searchImagesTimed(
 	if (source !== "wikimedia") libraries["Open-i"] = () => searchOpenI(query, kind, signal);
 	if (source !== "clinical") libraries.Commons = () => searchCommons(query, signal);
 	if (source === "any") libraries.Google = () => searchWeb(query, signal);
-	const { results, timing } = await gather(libraries);
+	const { results, timing, allFailed } = await gather(libraries);
 	const article = results.Wikipedia ?? [];
 	const lists = [results["Open-i"] ?? [], results.Commons ?? []];
 	const found = results.Google ?? [];
@@ -173,7 +175,26 @@ export async function searchImagesTimed(
 	for (const c of trusted) add(c);
 	for (const c of found) add(c);
 	logPicture(`find "${query}": ${timing}`);
-	return { found: mixed, timing };
+	return { found: mixed, timing, allFailed };
+}
+
+/** Why a search failed, in a few words for the logs ("HTTP 429", "ECONNRESET", "timed out"). */
+function whyFailed(err: unknown): string {
+	const e = err as { name?: string; message?: string; cause?: { code?: string; message?: string } };
+	if (e?.name === "TimeoutError" || e?.name === "AbortError") return "timed out";
+	return (e?.cause?.code || e?.cause?.message || e?.message || "unknown").slice(0, 60);
+}
+
+/** A search that fails quickly (a dropped connection, a busy server) is tried once more. */
+async function retryOnce(search: () => Promise<Candidate[]>): Promise<Candidate[]> {
+	const start = Date.now();
+	try {
+		return await search();
+	} catch (err) {
+		if (Date.now() - start > 3000 || /timed out|HTTP 4(0[0-4])/.test(whyFailed(err))) throw err;
+		await new Promise((r) => setTimeout(r, 800));
+		return search();
+	}
 }
 
 /**
@@ -181,11 +202,14 @@ export async function searchImagesTimed(
  * longer than MAX_WAIT_MS, and stops at ENOUGH_WAIT_MS if a few images have
  * already arrived. A library that fails or is still going counts as none.
  */
-async function gather(libraries: Record<string, () => Promise<Candidate[]>>): Promise<{ results: Record<string, Candidate[]>; timing: string }> {
+async function gather(
+	libraries: Record<string, () => Promise<Candidate[]>>,
+): Promise<{ results: Record<string, Candidate[]>; timing: string; allFailed: boolean }> {
 	const start = Date.now();
 	const results: Record<string, Candidate[]> = {};
 	const took: Record<string, string> = {};
 	let total = 0;
+	let failed = 0;
 	let finish!: () => void;
 	const done = new Promise<void>((resolve) => (finish = resolve));
 	const names = Object.keys(libraries);
@@ -194,14 +218,15 @@ async function gather(libraries: Record<string, () => Promise<Candidate[]>>): Pr
 		if (--left === 0) finish();
 	};
 	for (const name of names) {
-		libraries[name]()
+		retryOnce(libraries[name])
 			.then((found) => {
 				results[name] = found;
 				total += found.length;
 				took[name] = `${((Date.now() - start) / 1000).toFixed(1)}s ${found.length}`;
 			})
-			.catch(() => {
-				took[name] = `${((Date.now() - start) / 1000).toFixed(1)}s failed`;
+			.catch((err) => {
+				took[name] = `${((Date.now() - start) / 1000).toFixed(1)}s failed (${whyFailed(err)})`;
+				failed++;
 			})
 			.finally(settle);
 	}
@@ -217,7 +242,7 @@ async function gather(libraries: Record<string, () => Promise<Candidate[]>>): Pr
 	const used: Record<string, Candidate[]> = {};
 	for (const name of names) used[name] = results[name] ? [...results[name]] : [];
 	const timing = names.map((n) => `${n} ${took[n] ?? "still waiting, left out"}`).join(", ");
-	return { results: used, timing };
+	return { results: used, timing, allFailed: names.length > 0 && failed === names.length };
 }
 
 // Images in an article that are decoration, not teaching material.
@@ -281,10 +306,10 @@ export async function searchWikipedia(query: string, signal?: AbortSignal, max =
 		});
 }
 
-export async function getJson(url: string, signal?: AbortSignal): Promise<any> {
+export async function getJson(url: string, signal?: AbortSignal, waitMs = 20_000): Promise<any> {
 	const res = await fetch(url, {
 		headers: { "user-agent": USER_AGENT, accept: "application/json" },
-		signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(20_000)]) : AbortSignal.timeout(20_000),
+		signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(waitMs)]) : AbortSignal.timeout(waitMs),
 	});
 	if (!res.ok) throw new Error(`HTTP ${res.status}`);
 	return res.json();
@@ -356,6 +381,20 @@ export async function searchOpenI(query: string, kind: string, signal?: AbortSig
 		});
 	}
 	return out.filter((c) => isAllowedImage(c.url)).slice(0, MAX_RESULTS);
+}
+
+/** Previews a few at a time: quicker than one by one, without flooding one site with requests. */
+export async function fetchThumbs(urls: string[], signal?: AbortSignal): Promise<Array<{ data: string; mimeType: string } | undefined>> {
+	const out: Array<{ data: string; mimeType: string } | undefined> = new Array(urls.length);
+	let next = 0;
+	const worker = async () => {
+		while (next < urls.length) {
+			const i = next++;
+			out[i] = await fetchThumb(urls[i], signal);
+		}
+	};
+	await Promise.all(Array.from({ length: Math.min(3, urls.length) }, worker));
+	return out;
 }
 
 export async function fetchThumb(url: string, signal?: AbortSignal): Promise<{ data: string; mimeType: string } | undefined> {
@@ -448,7 +487,8 @@ export async function searchWeb(query: string, signal?: AbortSignal): Promise<Ca
 
 	const url = new URL("https://serpapi.com/search.json");
 	url.search = new URLSearchParams({ engine: "google_images", q: query, api_key: key, safe: "active" }).toString();
-	const data = await getJson(url.href, signal);
+	// Google Images through SerpApi is the slowest library: give it nearly all of the search's time.
+	const data = await getJson(url.href, signal, MAX_WAIT_MS - 1000);
 	const out: Candidate[] = [];
 	for (const r of data?.images_results ?? []) {
 		if (out.length >= MAX_RESULTS) break;

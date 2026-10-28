@@ -807,6 +807,11 @@ button.option:not(:disabled):hover {
 .explanation p:last-child {
 	margin: 0;
 }
+.card-actions .muted-text {
+	margin-right: auto;
+	align-self: center;
+	font-size: 0.9em;
+}
 .card-actions {
 	display: flex;
 	justify-content: flex-end;
@@ -1399,6 +1404,14 @@ p:has(> .photo-failed) + p:has(> em:only-child) {
 .video-clip {
 	display: block;
 	margin: 12px 0;
+}
+.video-unavailable > span:first-child {
+	display: block;
+	max-width: 640px;
+	padding: 12px 14px;
+	border: 1px dashed #b9b3a6;
+	border-radius: 10px;
+	background: #f4f1ea;
 }
 .video-clip iframe {
 	display: block;
