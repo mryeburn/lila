@@ -46,6 +46,21 @@ export interface TutorStore {
 	showToast: (text: string) => void;
 }
 
+/** Fetches a picture library's answer for the server, which that library refused. */
+async function fetchFor(url: string, as: "json" | "image"): Promise<unknown> {
+	const res = await fetch(url, { credentials: "omit" });
+	if (!res.ok) throw new Error(`HTTP ${res.status}`);
+	if (as === "json") return res.json();
+	const blob = await res.blob();
+	const dataUrl = await new Promise<string>((resolve, reject) => {
+		const reader = new FileReader();
+		reader.onload = () => resolve(String(reader.result));
+		reader.onerror = () => reject(reader.error);
+		reader.readAsDataURL(blob);
+	});
+	return { data: dataUrl.slice(dataUrl.indexOf(",") + 1), mimeType: blob.type };
+}
+
 function download(filename: string, text: string) {
 	const url = URL.createObjectURL(new Blob([text], { type: "text/markdown" }));
 	const a = document.createElement("a");
@@ -162,6 +177,14 @@ export function useTutor(): TutorStore {
 					case "error":
 						setToast(msg.message);
 						break;
+					case "fetch": {
+						const { id } = msg;
+						fetchFor(msg.url, msg.as).then(
+							(data) => ws.send(JSON.stringify({ type: "fetched", id, ok: true, data })),
+							(err) => ws.send(JSON.stringify({ type: "fetched", id, ok: false, error: String(err?.message ?? err).slice(0, 60) })),
+						);
+						break;
+					}
 				}
 			};
 		};

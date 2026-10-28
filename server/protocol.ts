@@ -105,7 +105,9 @@ export type ServerMessage =
 	| { type: "export"; filename: string; markdown: string }
 	/** The end of the picture log, for the learner to copy and share. */
 	| { type: "picture_log"; text: string }
-	| { type: "error"; message: string };
+	| { type: "error"; message: string }
+	/** Fetch this for the server (a library refused LILA's own request): reply with "fetched". */
+	| { type: "fetch"; id: string; url: string; as: "json" | "image" };
 
 export type ClientMessage =
 	| { type: "prompt"; text: string; /** Typed into a "Questions?" box. */ question?: boolean }
@@ -120,6 +122,8 @@ export type ClientMessage =
 	| { type: "set_thinking"; level: string }
 	| { type: "set_guided"; on: boolean }
 	| { type: "set_region"; region: string }
+	/** What the page fetched; for an image, data is { data: base64, mimeType }. */
+	| { type: "fetched"; id: string; ok: boolean; data?: unknown; error?: string }
 	| { type: "set_photo_key"; key: string }
 	| { type: "login_start"; provider: string; method: "api_key" | "oauth" }
 	| { type: "login_reply"; id: string; value: string }

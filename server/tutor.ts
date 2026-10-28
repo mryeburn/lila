@@ -390,17 +390,17 @@ export class Tutor implements InteractionBroker {
 	}
 
 	/** An open-ended question the learner answered that the tutor hasn't given feedback on yet. */
-	private feedbackDue: { question: string; answer: string; refusals: number } | null = null;
+	private feedbackDue: { question: string; answer: string } | null = null;
 
 	openAnswered(question: string, answer: string): void {
-		this.feedbackDue = { question, answer, refusals: 0 };
+		this.feedbackDue = { question, answer };
 	}
 
 	/**
-	 * The tutor is told once to give feedback first. If it still goes straight
-	 * on (it did, four times in a row), LILA writes the feedback itself.
+	 * The tutor went straight on without feedback. Sending the card back cost a
+	 * whole reply and it often skipped again, so LILA writes the feedback itself.
 	 */
-	feedbackMissing(toolCallId: string): { question: string; write: boolean } | undefined {
+	feedbackMissing(toolCallId: string): { question: string } | undefined {
 		const due = this.feedbackDue;
 		if (!due) return undefined;
 		const { text } = this.textBefore(toolCallId);
@@ -408,8 +408,7 @@ export class Tutor implements InteractionBroker {
 			this.feedbackDue = null;
 			return undefined;
 		}
-		due.refusals++;
-		return { question: due.question, write: due.refusals > 1 };
+		return { question: due.question };
 	}
 
 	async writeFeedback(signal: AbortSignal | undefined): Promise<string | undefined> {

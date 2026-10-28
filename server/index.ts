@@ -9,7 +9,7 @@ import { AiModels } from "./engine/models.ts";
 import { type Material, MaterialError, readFile, readLink } from "./materials.ts";
 import type { ClientMessage, LoginPrompt, ModelInfo, ProviderInfo, ServerMessage } from "./protocol.ts";
 import { Tutor } from "./tutor.ts";
-import { webPhoto } from "./images.ts";
+import { setBrowserFetch, webPhoto } from "./images.ts";
 import { readPictureLog } from "./picturelog.ts";
 import { APP_VERSION, checkForUpdate, initialStatus, startUpdate, type UpdateStatus } from "./update.ts";
 
@@ -31,6 +31,28 @@ function broadcast(msg: ServerMessage) {
 }
 
 const tutor = new Tutor(runtime, broadcast);
+
+// Picture libraries that refuse LILA's own requests are asked through the open page.
+const fetching = new Map<string, (reply: { ok: boolean; data?: unknown; error?: string }) => void>();
+let fetchCount = 0;
+setBrowserFetch((url, as, waitMs) => {
+	const ws = [...clients].reverse().find((c) => c.readyState === WebSocket.OPEN);
+	if (!ws) return Promise.reject(new Error("refused, and no page open to ask instead"));
+	const id = `f${++fetchCount}`;
+	return new Promise((resolve, reject) => {
+		const timer = setTimeout(() => {
+			fetching.delete(id);
+			reject(new Error("timed out (through the page)"));
+		}, waitMs);
+		fetching.set(id, (reply) => {
+			clearTimeout(timer);
+			fetching.delete(id);
+			if (reply.ok) resolve(reply.data);
+			else reject(new Error(`${reply.error ?? "failed"} (through the page)`));
+		});
+		sendTo(ws, { type: "fetch", id, url, as });
+	});
+});
 
 // ── Sign-in ──────────────────────────────────────────────────────────────────
 
@@ -186,6 +208,9 @@ async function handle(ws: WebSocket, msg: ClientMessage) {
 			break;
 		case "set_thinking":
 			await tutor.setThinking(msg.level);
+			break;
+		case "fetched":
+			fetching.get(String(msg.id))?.({ ok: !!msg.ok, data: msg.data, error: msg.error });
 			break;
 		case "set_region":
 			await tutor.setRegion(String(msg.region ?? ""));
