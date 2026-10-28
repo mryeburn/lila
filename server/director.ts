@@ -30,6 +30,9 @@ const FINAL_MIN = 4;
 const FINAL_MAX = 8;
 const OPEN_MIN = 2;
 const OPEN_MAX = 3;
+/** How to ask the pre-test: every question in one reply, so the learner never waits between them. */
+const ALL_PRETEST =
+	"all the pre-test questions in this one reply, as quiz_question cards, one per main area of the topic (3 to 6 in all). The learner sees them one at a time. For a picture question, call find_image in this reply too, after the cards: the search runs while the learner answers, and you ask the picture question in your next reply.";
 
 const HEADING = /^\s*(#{1,6}\s|\*\*[^*]+\*\*\s*$)/;
 const SECTION_HEADING = /^\s*(?:#{1,6}\s*|\*\*)\s*Section\s+(\d+)\b/i;
@@ -156,7 +159,7 @@ function stepFor(p: Progress): Step | undefined {
 			};
 		return {
 			name: "setup",
-			note: 'Finish the setup questions in order with ask_learner, one per reply (the level question only if the goal doesn\'t show it, then files and links). Once those are done, start the pre-test: one sentence on what\'s coming, then pre-test question 1 with quiz_question.',
+			note: `Finish the setup questions in order with ask_learner, one per reply (the level question only if the goal doesn't show it, then files and links). Once those are done, start the pre-test: one sentence on what's coming, then ${ALL_PRETEST}`,
 			tools: [ASK_TOOL, QUIZ_TOOL, "find_image"],
 		};
 	}
@@ -164,25 +167,25 @@ function stepFor(p: Progress): Step | undefined {
 	// Pre-test.
 	if (!p.pretestDone) {
 		const n = p.pretestAnswers + 1;
-		const feedback = "Give a one-sentence explanation of the last answer first if it needs one. No teaching yet.";
+		const feedback = "No comment on the answers (their cards already explained them), and no teaching yet.";
 		const finish =
-			'write the heading "Pre-test complete" with its summary, then "Your learning plan" as a numbered list, then teach Section 1 under the heading "Section 1: name" and stop at its end. No cards.';
+			'write the heading "Pre-test complete" with its summary, then "Your learning plan" as a numbered list, then stop: Section 1 comes in your next reply, once the learner has read the plan. No cards, no pictures, no teaching yet.';
 		if (n <= PRETEST_MIN)
 			return {
-				name: `pre-test question ${n}`,
-				note: `Pre-test question ${n}. ${feedback} Then ask it with one quiz_question card, on a main area not tested yet.`,
+				name: `pre-test questions from ${n}`,
+				note: `${p.pretestAnswers} pre-test question${p.pretestAnswers === 1 ? " is" : "s are"} answered. ${feedback} Ask the rest of the pre-test now (at least ${PRETEST_MIN - p.pretestAnswers} more, on main areas not tested yet): ${ALL_PRETEST}`,
 				tools: [QUIZ_TOOL, "find_image"],
 			};
 		if (n <= PRETEST_MAX)
 			return {
 				name: `pre-test question ${n} or plan`,
-				note: `${p.pretestAnswers} pre-test questions are answered. ${feedback} If a main area of the topic still has no question, ask pre-test question ${n} with one quiz_question card. Otherwise the pre-test is done: ${finish}`,
+				note: `${p.pretestAnswers} pre-test questions are answered. ${feedback} If you searched for a photo for a picture question, ask that question now. If a main area of the topic still has no question, ask the questions still needed, all in this reply, with quiz_question. Otherwise the pre-test is done: ${finish}`,
 				tools: [QUIZ_TOOL, ...SEARCH],
 			};
 		return {
 			name: "pre-test summary and plan",
 			note: `The pre-test is done (${p.pretestAnswers} questions). Ask no more. Now ${finish}`,
-			tools: SEARCH,
+			tools: [],
 		};
 	}
 
@@ -192,7 +195,7 @@ function stepFor(p: Progress): Step | undefined {
 			if (p.taught.size === 0)
 				return {
 					name: "plan",
-					note: 'Write "Your learning plan" as a numbered list, then teach Section 1 under the heading "Section 1: name" and stop at its end. No cards.',
+					note: 'Write "Your learning plan" as a numbered list, then stop: Section 1 comes in your next reply, once the learner has read the plan. No cards.',
 					tools: SEARCH,
 				};
 			const next = Math.max(...p.taught) + 1;
@@ -207,7 +210,7 @@ function stepFor(p: Progress): Step | undefined {
 			const s = left[0];
 			return {
 				name: `section ${s.n}`,
-				note: `Teach Section ${s.n} of ${p.sections.length} under the heading "Section ${s.n}: ${s.name}", then stop at its end. Only this section: no quiz or question cards, and don't start the next section.`,
+				note: `Teach Section ${s.n} of ${p.sections.length} under the heading "Section ${s.n}: ${s.name}", then stop at its end. Only this section: no quiz or question cards, and don't start the next section. Before sending, check it for statements that seem to contradict each other and for comparisons that could be read two ways.`,
 				tools: SEARCH,
 			};
 		}

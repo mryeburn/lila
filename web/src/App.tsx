@@ -315,7 +315,11 @@ export function App() {
 		!busy &&
 		Object.keys(store.interactions).length === 0 &&
 		last?.kind === "assistant" &&
-		turnText(items).trim().length >= MIN_SECTION_TEXT;
+		// Only after teaching: not after Final quiz feedback or the lesson's end.
+		phases[items.length - 1] !== "final" &&
+		phases[items.length - 1] !== "review" &&
+		// A section, or the learning plan (Section 1 follows when they continue).
+		(turnText(items).trim().length >= MIN_SECTION_TEXT || /^\s*(#{1,6}\s*|\*\*)\s*your learning plan/im.test(turnText(items)));
 	const pretestStart = items.findIndex((item, i) => item.kind === "quiz" && phases[i] === "pre-test");
 	// A card with its own typing box is on screen: hide the bottom box, so there's one place to type.
 	const cardWaiting =

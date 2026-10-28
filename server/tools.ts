@@ -275,7 +275,9 @@ export function createQuizTool(broker: InteractionBroker): ToolDefinition<typeof
 			else if (correct) lines.push(`The learner got it right: ${selected.map(quote).join(" and ")}.`);
 			else lines.push(`The learner got it wrong. They chose ${selected.map(quote).join(" and ") || "nothing"}; the right answer: ${rightAnswer}.`);
 			if (note) lines.push(`Their note: ${note}`);
-			lines.push("They have seen your explanation. Build on what this answer shows about their understanding.");
+			lines.push(
+				"The card has already shown them why their answer is right or wrong. Don't comment on it or repeat the explanation; go straight on (answer their note briefly if they wrote one). Keep in mind what this answer shows about their understanding.",
+			);
 			const progress = broker.planProgress?.();
 			if (progress) lines.push(progress);
 

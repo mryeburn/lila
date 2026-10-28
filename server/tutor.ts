@@ -5,7 +5,7 @@ import { type AppSettings, loadSettings, SESSIONS_DIR, saveSettings, WORKSPACE_D
 import { Conversation, type ConversationEvent, STALLED, type ToolDefinition } from "./engine/conversation.ts";
 import { LessonFile } from "./engine/lessonfile.ts";
 import type { AiModels } from "./engine/models.ts";
-import { nextStep, offStep } from "./director.ts";
+import { nextStep, offStep, progress } from "./director.ts";
 import { buildLibrary, illustrate } from "./illustrator.ts";
 import { cleanName, type Library, type LessonSort, lessonKey, loadLibrary, saveLibrary } from "./library.ts";
 import { type Candidate, createImageTool, IMAGE_URL } from "./images.ts";
@@ -61,11 +61,18 @@ const ACTIVITY: Record<string, string> = {
 	find_video: "Finding a video clip…",
 	// Not tools: what happens between them.
 	answer: "Checking your answer…",
+	next: "Preparing what comes next…",
 	feedback: "Writing feedback on your answer…",
 };
 const REVIEW_TEXT = "I'm back to review this lesson. Please give me a new quiz on it.";
 const REVIEW_NOTE =
 	'\n\n<app-note>The learner opened this finished lesson again to review it. Start a new part with the heading "Review quiz". Ask 5 to 8 new quiz_question cards, one at a time, covering the lesson\'s main areas. Every question must be new: never repeat or reword a question already asked anywhere in this lesson. Only ask about what this lesson taught. About 1 in 4 can be a picture question. After the last answer, write the heading "How you did" and compare briefly, area by area, with how they did in the lesson\'s Final quiz. Don\'t reteach the lesson.</app-note>';
+
+/** What the spinner says once a card is answered: an own-words answer is being read; a marked quiz answer just leads on. */
+function afterAnswer(toolName: string, details: any): string | null {
+	if (details?.status !== "answered") return null;
+	return toolName === ASK_TOOL && details.mode === "text" ? "answer" : "next";
+}
 
 /** Identifies one part of a tutor message (the text between its cards). */
 function partId(msg: any, part: number): string {
@@ -543,7 +550,7 @@ export class Tutor implements InteractionBroker {
 			if (this.teachingStarted())
 				return 'You were teaching the lesson\'s sections. Carry on with the next one under its own "Section N: name" heading, then the Final quiz.';
 			if (this.pretestDone()) return "You had finished the pre-test. Write \"Your learning plan\" if you haven't yet, then teach Section 1.";
-			return `You were giving the pre-test (${this.quizAnswers()} questions answered so far). Carry on with it, keeping it to about ${PRETEST_ENOUGH} questions in all, then write "Pre-test complete", then "Your learning plan", then teach Section 1.`;
+			return `You were giving the pre-test (${this.quizAnswers()} questions answered so far). Carry on with it, keeping it to about ${PRETEST_ENOUGH} questions in all, then write "Pre-test complete", then "Your learning plan", then stop.`;
 		}
 		const left = this.untaught(plan);
 		if (left.length > 0) {
@@ -565,7 +572,8 @@ export class Tutor implements InteractionBroker {
 		this.preparedContinue = undefined;
 		if (!session || this.pending.size > 0 || this.lastError) return;
 		const plan = this.plan();
-		if (!plan || this.untaught(plan).length === 0) return;
+		// After the last section, the Final quiz is written ahead the same way.
+		if (!plan || progress(session.messages as any[]).finalStarted) return;
 		const messages = session.messages as any[];
 		const last = messages.at(-1);
 		if (last?.role !== "assistant" || last.stopReason !== "stop") return;
@@ -573,14 +581,42 @@ export class Tutor implements InteractionBroker {
 		let turn = "";
 		for (let i = messages.length - 1; i >= 0 && messages[i].role !== "user"; i--)
 			if (messages[i].role === "assistant") turn = `${textOf(messages[i].content)}\n${turn}`;
-		if (turn.trim().length < MIN_SECTION_LENGTH) return;
+		if (turn.trim().length < MIN_SECTION_LENGTH && !turn.split("\n").some((l) => HEADING.test(l) && /learning plan/i.test(l))) return;
 		const text = CONTINUE_TEXT + this.nextSectionNote() + this.visualReminder(true);
 		this.preparedContinue = { text, base: messages.length };
 		session.prepare(text, ["find_image", "find_video"]);
 	}
 
+	/** Times in a row LILA has started the tutor's next step by itself. */
+	private carriedOn = 0;
+
+	/**
+	 * In the pre-test and the Final quiz, the tutor sometimes stops after its
+	 * text (feedback, a comment) without the next card, and nothing would
+	 * happen until the learner typed. When LILA directs the steps, it starts
+	 * the next one itself (twice in a row at most).
+	 */
+	private carryOn(): void {
+		const session = this.session;
+		if (!session || this.settings.guidedSteps === false || this.pending.size > 0 || this.lastError) return;
+		const messages = session.messages as any[];
+		const last = messages.at(-1);
+		if (last?.role !== "assistant" || last.stopReason !== "stop") return;
+		const p = progress(messages);
+		const inPretest = p.pretestAnswers > 0 && !p.pretestDone;
+		const inFinal = p.finalStarted && !p.free;
+		if (!(inPretest || inFinal) || this.carriedOn >= 2) return;
+		this.carriedOn++;
+		setTimeout(() => {
+			if (this.session !== session || session.isStreaming || this.pending.size > 0) return;
+			void session.prompt("<app-note>Carry on with the next step of the lesson.</app-note>");
+		}, 50);
+	}
+
 	/** After a section, when the learner has no questions: what to teach next. */
 	private nextSectionNote(): string {
+		// The Final quiz has started (or the lesson is over): there's no section left to start it from.
+		if (progress((this.session?.messages ?? []) as any[]).finalStarted) return "";
 		const plan = this.plan();
 		if (!plan) {
 			if (!this.teachingStarted()) return "";
@@ -632,8 +668,8 @@ export class Tutor implements InteractionBroker {
 			const n = this.quizAnswers() + 1;
 			if (this.pretestDone() || n < 3) return undefined;
 			if (n < PRETEST_ENOUGH)
-				return `Note from the LILA app: when the pre-test ends, before any teaching, write "Pre-test complete" with its summary, then "Your learning plan" as a numbered list, then teach Section 1 under the heading "Section 1: name".`;
-			return `Note from the LILA app: that's ${n} pre-test questions, which is enough. Don't ask more. Now write "Pre-test complete" with what the learner already knows, then "Your learning plan", then teach Section 1.`;
+				return `Note from the LILA app: when the pre-test ends, before any teaching, write "Pre-test complete" with its summary, then "Your learning plan" as a numbered list, then stop (Section 1 comes in your next reply).`;
+			return `Note from the LILA app: that's ${n} pre-test questions, which is enough. Don't ask more. Now write "Pre-test complete" with what the learner already knows, then "Your learning plan", then stop (Section 1 comes in your next reply).`;
 		}
 		const left = this.untaught(plan);
 		if (left.length === 0) return undefined;
@@ -652,6 +688,7 @@ export class Tutor implements InteractionBroker {
 	}
 
 	answer(id: string, answer: unknown): void {
+		this.carriedOn = 0;
 		this.pending.get(id)?.resolve(answer ?? {});
 	}
 
@@ -988,6 +1025,7 @@ export class Tutor implements InteractionBroker {
 			session.setSessionName(title.replace(/\s+/g, " ").trim().slice(0, 80));
 		}
 		this.lastError = undefined;
+		this.carriedOn = 0;
 		// A graded quiz just waits for "Next question", so it's dismissed and the
 		// text goes to the tutor as a normal message: a follow-up question about it.
 		for (const { interaction, resolve } of [...this.pending.values()]) {
@@ -1331,6 +1369,7 @@ export class Tutor implements InteractionBroker {
 				if (msg.step) out.push(`${time} (step: ${msg.step})`);
 			} else if (msg.role === "toolResult") {
 				out.push(`${time} result: ${msg.details?.status ?? (msg.isError ? "error" : "?")}: ${clip(textOf(msg.content), 200)}`);
+				if (msg.details?.timing) out.push(`${time} (searched: ${msg.details.timing})`);
 			}
 		}
 		out.push("```", "", "</details>", "");
@@ -1375,6 +1414,7 @@ export class Tutor implements InteractionBroker {
 				void this.pushState();
 				void this.lessonsMessage().then((msg) => this.broadcast(msg));
 				this.prepareNextSection();
+				this.carryOn();
 				break;
 			case "message_start":
 				// Held until the learner's message reaches the tutor, or (when it
@@ -1408,7 +1448,7 @@ export class Tutor implements InteractionBroker {
 			case "message_end":
 				// After the learner answers a card, the tutor's next step is to look at the answer.
 				if (event.type === "tool_execution_end")
-					this.setActivity((event as any).result?.details?.status === "answered" ? "answer" : null);
+					this.setActivity(afterAnswer((event as any).toolName, (event as any).result?.details));
 				if (event.type === "message_end" && (event as any).message?.role === "assistant") {
 					const call = ((event as any).message.content ?? []).find((b: any) => b.type === "toolCall");
 					this.setActivity(call?.name ?? null);

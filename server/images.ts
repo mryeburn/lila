@@ -18,6 +18,7 @@ import * as path from "node:path";
 import type { ToolDefinition } from "./engine/conversation.ts";
 import { Type } from "typebox";
 import { DATA_DIR, loadSettings } from "./config.ts";
+import { logPicture } from "./picturelog.ts";
 
 /** Hosts the page will load images from. Keep in sync with web/src/components/Markdown.tsx. */
 export const IMAGE_HOSTS = ["upload.wikimedia.org", "openi.nlm.nih.gov"];
@@ -27,8 +28,12 @@ export const IMAGE_URL = /(?:https:\/\/|\/photos\/)[^\s)"]+/g;
 
 const USER_AGENT = "LILA/1.0 (https://github.com/mryeburn/lila)";
 const MAX_RESULTS = 6;
-/** How long one library may take before the search goes on without it. */
-const SOURCE_WAIT_MS = 12_000;
+/** Once this long has passed and a few images have arrived, the search stops waiting for slower libraries. */
+const ENOUGH_WAIT_MS = 10_000;
+/** The longest a search waits for any library. */
+const MAX_WAIT_MS = 25_000;
+/** How many images count as "a few". */
+const ENOUGH_FOUND = 3;
 
 export interface Candidate {
 	url: string;
@@ -84,10 +89,10 @@ export function createImageTool(canSeeImages: () => boolean): ToolDefinition<typ
 		parameters: Params,
 
 		async execute(_toolCallId, params, signal) {
-			const mixed = await searchImages(params.query, params.source ?? "any", params.kind ?? "any", signal);
+			const { found: mixed, timing } = await searchImagesTimed(params.query, params.source ?? "any", params.kind ?? "any", signal);
 			if (mixed.length === 0) {
 				const text = `No images found for "${params.query}". Try simpler or different words, or draw a diagram instead.`;
-				return { content: [{ type: "text" as const, text }], details: { query: params.query, count: 0 } };
+				return { content: [{ type: "text" as const, text }], details: { query: params.query, count: 0, timing } };
 			}
 
 			const content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [];
@@ -106,7 +111,7 @@ export function createImageTool(canSeeImages: () => boolean): ToolDefinition<typ
 				const img = thumbs[i];
 				if (img) content.push({ type: "image", ...img });
 			}
-			return { content, details: { query: params.query, count: mixed.length } };
+			return { content, details: { query: params.query, count: mixed.length, timing } };
 		},
 	};
 }
@@ -128,15 +133,28 @@ export async function searchImages(
 	signal?: AbortSignal,
 	options: { article?: string; limit?: number } = {},
 ): Promise<Candidate[]> {
+	return (await searchImagesTimed(query, source, kindName, signal, options)).found;
+}
+
+/** searchImages, plus how long each library took and what it found ("Commons 1.2s 6"), for the logs. */
+export async function searchImagesTimed(
+	query: string,
+	source: "any" | "wikimedia" | "clinical",
+	kindName: string,
+	signal?: AbortSignal,
+	options: { article?: string; limit?: number } = {},
+): Promise<{ found: Candidate[]; timing: string }> {
 	const limit = options.limit ?? MAX_RESULTS;
 	const kind = KINDS[kindName as keyof typeof KINDS] ?? "";
-	// Each library gets a few seconds; a slow one is left out rather than holding up the lesson.
-	const wikipedia = source !== "clinical" ? inTime(searchWikipedia(options.article || query, signal)) : Promise.resolve([]);
-	const searches: Promise<Candidate[]>[] = [];
-	if (source !== "wikimedia") searches.push(inTime(searchOpenI(query, kind, signal)));
-	if (source !== "clinical") searches.push(inTime(searchCommons(query, signal)));
-	const web = source === "any" ? inTime(searchWeb(query, signal)) : Promise.resolve([]);
-	const [article, lists, found] = await Promise.all([wikipedia, Promise.all(searches), web]);
+	const libraries: Record<string, () => Promise<Candidate[]>> = {};
+	if (source !== "clinical") libraries.Wikipedia = () => searchWikipedia(options.article || query, signal);
+	if (source !== "wikimedia") libraries["Open-i"] = () => searchOpenI(query, kind, signal);
+	if (source !== "clinical") libraries.Commons = () => searchCommons(query, signal);
+	if (source === "any") libraries.Google = () => searchWeb(query, signal);
+	const { results, timing } = await gather(libraries);
+	const article = results.Wikipedia ?? [];
+	const lists = [results["Open-i"] ?? [], results.Commons ?? []];
+	const found = results.Google ?? [];
 	const mixed: Candidate[] = [];
 	const add = (c: Candidate | undefined) => {
 		if (c && mixed.length < limit && !mixed.some((m) => m.url === c.url)) mixed.push(c);
@@ -154,16 +172,52 @@ export async function searchImages(
 	}
 	for (const c of trusted) add(c);
 	for (const c of found) add(c);
-	return mixed;
+	logPicture(`find "${query}": ${timing}`);
+	return { found: mixed, timing };
 }
 
-/** A library's results, or none if it fails or takes longer than SOURCE_WAIT_MS. */
-function inTime(search: Promise<Candidate[]>): Promise<Candidate[]> {
-	let timer: ReturnType<typeof setTimeout> | undefined;
-	const late = new Promise<Candidate[]>((resolve) => {
-		timer = setTimeout(() => resolve([]), SOURCE_WAIT_MS);
-	});
-	return Promise.race([search.catch(() => []), late]).finally(() => clearTimeout(timer));
+/**
+ * Runs the library searches at the same time. Waits for all of them, but no
+ * longer than MAX_WAIT_MS, and stops at ENOUGH_WAIT_MS if a few images have
+ * already arrived. A library that fails or is still going counts as none.
+ */
+async function gather(libraries: Record<string, () => Promise<Candidate[]>>): Promise<{ results: Record<string, Candidate[]>; timing: string }> {
+	const start = Date.now();
+	const results: Record<string, Candidate[]> = {};
+	const took: Record<string, string> = {};
+	let total = 0;
+	let finish!: () => void;
+	const done = new Promise<void>((resolve) => (finish = resolve));
+	const names = Object.keys(libraries);
+	let left = names.length;
+	const settle = () => {
+		if (--left === 0) finish();
+	};
+	for (const name of names) {
+		libraries[name]()
+			.then((found) => {
+				results[name] = found;
+				total += found.length;
+				took[name] = `${((Date.now() - start) / 1000).toFixed(1)}s ${found.length}`;
+			})
+			.catch(() => {
+				took[name] = `${((Date.now() - start) / 1000).toFixed(1)}s failed`;
+			})
+			.finally(settle);
+	}
+	if (left === 0) finish();
+	const enough = setInterval(() => {
+		if (Date.now() - start >= ENOUGH_WAIT_MS && total >= ENOUGH_FOUND) finish();
+	}, 250);
+	const timer = setTimeout(finish, MAX_WAIT_MS);
+	await done;
+	clearInterval(enough);
+	clearTimeout(timer);
+	// Copies, so a library that answers later doesn't change what was used.
+	const used: Record<string, Candidate[]> = {};
+	for (const name of names) used[name] = results[name] ? [...results[name]] : [];
+	const timing = names.map((n) => `${n} ${took[n] ?? "still waiting, left out"}`).join(", ");
+	return { results: used, timing };
 }
 
 // Images in an article that are decoration, not teaching material.

@@ -109,6 +109,18 @@ export async function searchVideos(query: string, signal?: AbortSignal): Promise
 	return out;
 }
 
+/** How long one transcript may take before the search goes on without it. */
+const TRANSCRIPT_WAIT_MS = 15_000;
+
+/** The text, or "" if it fails or takes longer than `ms`. */
+function withLimit(text: Promise<string>, ms: number): Promise<string> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const late = new Promise<string>((resolve) => {
+		timer = setTimeout(() => resolve(""), ms);
+	});
+	return Promise.race([text.catch(() => ""), late]).finally(() => clearTimeout(timer));
+}
+
 export async function transcript(id: string, signal?: AbortSignal): Promise<string> {
 	const data = await serp({ engine: "youtube_video_transcript", v: id, language_code: "en" }, signal);
 	return timedLines(data?.transcript ?? []);
@@ -136,18 +148,27 @@ export function createVideoTool(clipsShown: () => number): ToolDefinition<typeof
 			} catch {
 				return reply("The video search didn't work just now. Use a picture instead.", { status: "error" });
 			}
+			const start = Date.now();
 			const found: string[] = [];
-			for (const v of videos) {
-				if (found.length >= CANDIDATES) break;
-				const text = await transcript(v.id, signal).catch(() => "");
-				if (!text) continue;
-				const clipped = text.length > MAX_TRANSCRIPT_CHARS ? `${text.slice(0, MAX_TRANSCRIPT_CHARS)}\n[…rest of transcript left out]` : text;
-				found.push(
-					`Video ${found.length + 1}: "${v.title}" by ${v.channel || "unknown channel"}, ${clock(v.seconds)} long\nid: ${v.id}\nTranscript:\n${clipped}`,
-				);
+			// Transcripts a few at a time, all at once (each costs one search, so no more than needed),
+			// and never more than a couple of rounds.
+			let next = 0;
+			for (let round = 0; round < 2 && found.length < CANDIDATES && next < videos.length; round++) {
+				const batch = videos.slice(next, next + CANDIDATES - found.length);
+				next += batch.length;
+				const texts = await Promise.all(batch.map((v) => withLimit(transcript(v.id, signal), TRANSCRIPT_WAIT_MS)));
+				for (const [i, v] of batch.entries()) {
+					const text = texts[i];
+					if (!text) continue;
+					const clipped = text.length > MAX_TRANSCRIPT_CHARS ? `${text.slice(0, MAX_TRANSCRIPT_CHARS)}\n[…rest of transcript left out]` : text;
+					found.push(
+						`Video ${found.length + 1}: "${v.title}" by ${v.channel || "unknown channel"}, ${clock(v.seconds)} long\nid: ${v.id}\nTranscript:\n${clipped}`,
+					);
+				}
 			}
+			const timing = `${((Date.now() - start) / 1000).toFixed(1)}s for ${next} transcripts, ${found.length} usable`;
 			if (found.length === 0) {
-				return reply(`No usable video found for "${params.query}" (none had a transcript). Use a picture instead.`, { status: "none", query: params.query });
+				return reply(`No usable video found for "${params.query}" (none had a transcript). Use a picture instead.`, { status: "none", query: params.query, timing });
 			}
 			const how = [
 				`Point to show: ${params.point}`,
@@ -159,7 +180,7 @@ export function createVideoTool(clipsShown: () => number): ToolDefinition<typeof
 				"",
 				...found,
 			];
-			return reply(how.join("\n"), { status: "found", query: params.query, count: found.length });
+			return reply(how.join("\n"), { status: "found", query: params.query, count: found.length, timing });
 		},
 	};
 }
