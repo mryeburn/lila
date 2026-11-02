@@ -1,0 +1,27 @@
+# Builds the read-only GitHub key into LILA, so installed copies keep updating
+# once the repository is private. Michael puts the key in the repository's
+# secrets as LILA_UPDATE_KEY (it never goes in a chat), then this is run once
+# by hand. It checks the key works, then saves it, reversed and base64-encoded,
+# as scripts/update-key (see githubToken in server/update.ts).
+name: Build in the update key
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  key:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the key and save it
+        env:
+          KEY: ${{ secrets.LILA_UPDATE_KEY }}
+          REPO: ${{ github.repository }}
+        run: |
+          [ -n "$KEY" ] || { echo "There is no LILA_UPDATE_KEY secret."; exit 1; }
+          curl -fsS -o /dev/null -H "Authorization: Bearer $KEY" "https://api.github.com/repos/$REPO/contents/package.json" ||
+            { echo "GitHub refused the key. Check it can read this repository's contents."; exit 1; }
+          printf '%s' "$KEY" | rev | base64 -w0 > scripts/update-key
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/update-key
+          if git diff --cached --quiet; then echo "The key is already built in."; else git commit -m "Build in the key for LILA updates" && git push; fi
