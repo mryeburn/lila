@@ -7,6 +7,11 @@
 # sign-ins.
 #
 #   irm https://raw.githubusercontent.com/mryeburn/lila/main/scripts/install-windows.ps1 | iex
+#
+# If the repository is private, a read-only GitHub key is needed, given as
+# LILA_TOKEN (the app passes its own when it updates itself):
+#
+#   $env:LILA_TOKEN='KEY'; irm -Headers @{Authorization='token KEY'} https://raw.githubusercontent.com/mryeburn/lila/main/scripts/install-windows.ps1 | iex
 
 & {
 	$ErrorActionPreference = 'Stop'
@@ -19,6 +24,7 @@
 	$AppDir = Join-Path $HOME 'lila'
 	$DataDir = Join-Path $HOME '.lila'
 	$NodeDir = Join-Path $DataDir 'node'
+	$Token = "$env:LILA_TOKEN".Trim()
 
 	function Say($msg) { Write-Host "`n==> $msg" -ForegroundColor Cyan }
 	function Fail($msg) { throw [System.Exception]::new($msg) }
@@ -80,15 +86,30 @@
 		# Pin the exact version, so the app knows what it's running when checking for updates.
 		$sha = ''
 		try {
-			$refs = (Invoke-WebRequest -Uri "https://github.com/$Repo.git/info/refs?service=git-upload-pack" -UseBasicParsing).Content
+			$refsHeaders = @{}
+			if ($Token) { $refsHeaders.Authorization = 'Basic ' + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("x-access-token:$Token")) }
+			$refs = (Invoke-WebRequest -Uri "https://github.com/$Repo.git/info/refs?service=git-upload-pack" -Headers $refsHeaders -UseBasicParsing).Content
 			if ($refs -is [byte[]]) { $refs = [Text.Encoding]::ASCII.GetString($refs) }
 			if ($refs -match '([0-9a-f]{40}) refs/heads/main') { $sha = $Matches[1] }
 		} catch { }
 		if ($sha -notmatch '^[0-9a-f]{40}$') { $sha = '' }
-		$ref = if ($sha) { $sha } else { 'refs/heads/main' }
-		$ZipUrl = if ($env:LILA_ZIP) { $env:LILA_ZIP } else { "https://github.com/$Repo/archive/$ref.zip" }
-		Download $ZipUrl (Join-Path $tmp 'app.zip') "Couldn't download LILA from GitHub. If the repository is private, it has to be made public first."
-		$app = Extract (Join-Path $tmp 'app.zip') (Join-Path $tmp 'app')
+		$ref = if ($sha) { $sha } else { 'main' }
+		$appZip = Join-Path $tmp 'app.zip'
+		if ($env:LILA_ZIP) {
+			Download $env:LILA_ZIP $appZip "Couldn't download LILA from $env:LILA_ZIP."
+		} elseif ($Token) {
+			# Through GitHub's API, which accepts the key (it works for a private repository).
+			try {
+				try {
+					Invoke-WebRequest -Uri "https://api.github.com/repos/$Repo/zipball/$ref" -Headers @{ Authorization = "Bearer $Token" } -OutFile $appZip -UseBasicParsing
+				} catch {
+					Invoke-WebRequest -Uri "https://github.com/$Repo/archive/$ref.zip" -OutFile $appZip -UseBasicParsing
+				}
+			} catch { Fail "Couldn't download LILA from GitHub. Check the internet connection, and that the key in the install command is right." }
+		} else {
+			Download "https://github.com/$Repo/archive/$ref.zip" $appZip "Couldn't download LILA from GitHub. If the repository is private, use the install command that includes the key."
+		}
+		$app = Extract $appZip (Join-Path $tmp 'app')
 		if (-not (Test-Path (Join-Path $app.FullName 'package.json'))) { Fail "The download doesn't look like LILA." }
 		# Reuse already-installed packages to make updates quick.
 		$oldModules = Join-Path $AppDir 'node_modules'

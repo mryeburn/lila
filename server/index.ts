@@ -248,8 +248,8 @@ async function handle(ws: WebSocket, msg: ClientMessage) {
 			break;
 		case "start_update":
 			try {
-				startUpdate();
 				setUpdate({ ...updateStatus, state: "updating" });
+				await startUpdate();
 			} catch (err) {
 				setUpdate({ ...updateStatus, state: "error", error: (err as Error).message });
 			}

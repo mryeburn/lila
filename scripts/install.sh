@@ -7,6 +7,11 @@
 # sign-ins.
 #
 #   curl -fsSL https://raw.githubusercontent.com/mryeburn/lila/main/scripts/install.sh | bash
+#
+# If the repository is private, a read-only GitHub key is needed, given as
+# LILA_TOKEN (the app passes its own when it updates itself):
+#
+#   curl -fsSL -H "Authorization: token KEY" https://raw.githubusercontent.com/mryeburn/lila/main/scripts/install.sh | LILA_TOKEN=KEY bash
 
 set -euo pipefail
 
@@ -19,6 +24,7 @@ NODE_DIST="https://nodejs.org/dist/latest-v22.x"
 APP_DIR="$HOME/lila"
 DATA_DIR="$HOME/.lila"
 NODE_DIR="$DATA_DIR/node"
+TOKEN="${LILA_TOKEN:-}"
 
 say() { printf '\n\033[1;34m==>\033[0m %s\n' "$*"; }
 fail() {
@@ -81,11 +87,21 @@ echo "Using Node.js $(node -v)"
 # ── 3. The app ────────────────────────────────────────────────────────────────
 say "Downloading LILA"
 # Pin the exact version, so the app knows what it's running when checking for updates.
-SHA="$(curl -fsSL "https://github.com/$REPO.git/info/refs?service=git-upload-pack" 2>/dev/null | grep -aoE '[0-9a-f]{40} refs/heads/main' | head -n1 | cut -c1-40 || true)"
-if [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]; then REF="$SHA"; else SHA=""; REF="refs/heads/main"; fi
-TARBALL_URL="${LILA_TARBALL:-https://github.com/$REPO/archive/$REF.tar.gz}"
-curl -fsSL "$TARBALL_URL" -o "$TMP/app.tar.gz" ||
-	fail "Couldn't download LILA from GitHub. If the repository is private, it has to be made public first."
+AUTH=()
+[ -n "$TOKEN" ] && AUTH=(-u "x-access-token:$TOKEN")
+SHA="$(curl -fsSL ${AUTH[@]+"${AUTH[@]}"} "https://github.com/$REPO.git/info/refs?service=git-upload-pack" 2>/dev/null | grep -aoE '[0-9a-f]{40} refs/heads/main' | head -n1 | cut -c1-40 || true)"
+if [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]; then REF="$SHA"; else SHA=""; REF="main"; fi
+if [ -n "${LILA_TARBALL:-}" ]; then
+	curl -fsSL "$LILA_TARBALL" -o "$TMP/app.tar.gz" || fail "Couldn't download LILA from $LILA_TARBALL."
+elif [ -n "$TOKEN" ]; then
+	# Through GitHub's API, which accepts the key (it works for a private repository).
+	curl -fsSL -H "Authorization: Bearer $TOKEN" "https://api.github.com/repos/$REPO/tarball/$REF" -o "$TMP/app.tar.gz" ||
+		curl -fsSL "https://github.com/$REPO/archive/$REF.tar.gz" -o "$TMP/app.tar.gz" ||
+		fail "Couldn't download LILA from GitHub. Check the internet connection, and that the key in the install command is right."
+else
+	curl -fsSL "https://github.com/$REPO/archive/$REF.tar.gz" -o "$TMP/app.tar.gz" ||
+		fail "Couldn't download LILA from GitHub. If the repository is private, use the install command that includes the key."
+fi
 mkdir -p "$TMP/app"
 tar -xzf "$TMP/app.tar.gz" -C "$TMP/app" --strip-components=1
 [ -f "$TMP/app/package.json" ] || fail "The download doesn't look like LILA."
