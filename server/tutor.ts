@@ -8,7 +8,7 @@ import type { AiModels } from "./engine/models.ts";
 import { nextStep, offStep, progress } from "./director.ts";
 import { buildLibrary, illustrate } from "./illustrator.ts";
 import { cleanName, type Library, type LessonSort, lessonKey, loadLibrary, saveLibrary } from "./library.ts";
-import { type Candidate, createImageTool, IMAGE_URL } from "./images.ts";
+import { type Candidate, createImageTool, IMAGE_URL, keepPhotos } from "./images.ts";
 import { CLIP_BLOCK, CLIP_EVERY_LESSON, createVideoTool } from "./videos.ts";
 import { asMessage, type Material, parseMessage } from "./materials.ts";
 import { QUIZ_LABEL, quizPhases } from "./phases.ts";
@@ -1177,6 +1177,10 @@ export class Tutor implements InteractionBroker {
 		}
 	}
 
+	photosReady(text: string): Promise<void> {
+		return keepPhotos(text);
+	}
+
 	/**
 	 * A quiz question is shown: start its picture now, so it's ready with the
 	 * explanation (it only shows once the learner has answered).
@@ -1459,6 +1463,9 @@ export class Tutor implements InteractionBroker {
 					const call = ((event as any).message.content ?? []).find((b: any) => b.type === "toolCall");
 					this.setActivity(call?.name ?? null);
 					this.autoIllustrateMessage((event as any).message);
+					// The cards' photos start loading now, while the learner answers the first card.
+					for (const b of (event as any).message.content ?? [])
+						if (b.type === "toolCall" && typeof b.arguments?.context === "string") void keepPhotos(b.arguments.context);
 					// A reply written after the question arrived, with real text: answered.
 					const written = ((event as any).message.content ?? []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("");
 					if (this.openQuestion && !this.holdCardsUntil && written.trim().length >= 20) this.openQuestion = null;

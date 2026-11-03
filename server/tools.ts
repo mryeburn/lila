@@ -77,6 +77,8 @@ export interface InteractionBroker {
 	unansweredQuestion?(toolCallId: string): string | undefined;
 	/** A quiz question is about to be shown: a picture for its explanation can be started now. */
 	quizShown?(toolCallId: string, quiz: QuizAbout): void;
+	/** Makes sure the photos in a card are ready, so the card and its photo show together. */
+	photosReady?(text: string): Promise<void>;
 	/**
 	 * The learner's open-ended answer still has no written feedback before
 	 * this card. `write`: the tutor was already told once, so LILA writes it.
@@ -236,6 +238,7 @@ export function createQuizTool(broker: InteractionBroker): ToolDefinition<typeof
 				return textResult(message, { status: "paused", question, mode, message: "You asked a question first", skippedWith: asked });
 			}
 
+			if (details) await broker.photosReady?.(details);
 			broker.quizShown?.(toolCallId, { question, context: details, options, correctIndices, explanation });
 			const answer = await broker.request<QuizAnswer>(
 				{ kind: "quiz", id: toolCallId, question, details, multiSelect, options },
@@ -330,6 +333,7 @@ export function createAskTool(broker: InteractionBroker): ToolDefinition<typeof 
 			if (owed) return owed;
 			const early = broker.sectionsLeft?.(toolCallId, question, mode === "text");
 			if (early) return textResult(early, { status: "unanswered", question, mode });
+			if (details) await broker.photosReady?.(details);
 			const answer = await broker.request<AskAnswer>(
 				{ kind: "ask", id: toolCallId, question, details, mode, options },
 				signal,

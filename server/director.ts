@@ -34,6 +34,9 @@ const OPEN_MAX = 3;
 const ALL_PRETEST =
 	"all the pre-test questions in this one reply, as quiz_question cards, one per main area of the topic (3 to 6 in all). The learner sees them one at a time. For a picture question, call find_image in this reply too, after the cards: the search runs while the learner answers, and you ask the picture question in your next reply.";
 
+// One reply holds the quiz, so the learner doesn't wait for each question to be written.
+const ALL_FINAL = `all the multiple-choice questions in this one reply, as quiz_question cards (about ${FINAL_MIN} to ${FINAL_MAX} in all, covering the main areas). The learner sees them one at a time. For a picture question with a real photo, call find_image in this reply too, after the cards: the search runs while the learner answers, and you ask the picture question in your next reply.`;
+
 const HEADING = /^\s*(#{1,6}\s|\*\*[^*]+\*\*\s*$)/;
 const SECTION_HEADING = /^\s*(?:#{1,6}\s*|\*\*)\s*Section\s+(\d+)\b/i;
 
@@ -201,7 +204,7 @@ function stepFor(p: Progress): Step | undefined {
 			const next = Math.max(...p.taught) + 1;
 			return {
 				name: `section ${next} or Final quiz`,
-				note: `Teach the next section under the heading "Section ${next}: name" and stop at its end, with no cards. If every part of the topic is already taught, start the Final quiz instead: the heading "Final quiz", one sentence saying the teaching part is done, then the first quiz_question.`,
+				note: `Teach the next section under the heading "Section ${next}: name" and stop at its end, with no cards. If every part of the topic is already taught, start the Final quiz instead: the heading "Final quiz", one sentence saying the teaching part is done, then ${ALL_FINAL}`,
 				tools: [QUIZ_TOOL, ...SEARCH],
 			};
 		}
@@ -216,7 +219,7 @@ function stepFor(p: Progress): Step | undefined {
 		}
 		return {
 			name: "start Final quiz",
-			note: 'Every section is taught. Start the Final quiz: the heading "Final quiz", one sentence telling the learner the teaching part is done and it\'s time to see how much they\'ve learned, then the multiple-choice questions with quiz_question (you may send them all in this reply).',
+			note: `Every section is taught. Start the Final quiz: the heading "Final quiz", one sentence telling the learner the teaching part is done and it's time to see how much they've learned, then ${ALL_FINAL}`,
 			tools: [QUIZ_TOOL, "find_image"],
 		};
 	}
@@ -243,7 +246,7 @@ function stepFor(p: Progress): Step | undefined {
 		if (p.finalAnswers < FINAL_MIN)
 			return {
 				name: "Final quiz questions",
-				note: `Carry on with the Final quiz: multiple-choice questions with quiz_question (${p.finalAnswers} answered so far, about ${FINAL_MIN} to ${FINAL_MAX} in all).`,
+				note: `Carry on with the Final quiz (${p.finalAnswers} answered so far): ask the rest of its multiple-choice questions, ${ALL_FINAL.replace("all the multiple-choice questions in this one reply", "all of them in this one reply")}`,
 				tools: [QUIZ_TOOL, "find_image"],
 			};
 		if (p.finalAnswers < FINAL_MAX)
