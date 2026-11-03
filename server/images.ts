@@ -563,7 +563,34 @@ function hostOf(link: unknown): string {
  * The image for a page address like /photos/<id>: LILA's copy, fetched the
  * first time it's shown. Undefined if it isn't one of LILA's web photos.
  */
-export async function webPhoto(pathname: string): Promise<{ data: Buffer; mimeType: string } | undefined> {
+/** Photos being fetched right now, so a photo asked for twice is only fetched once. */
+const fetchingPhotos = new Map<string, Promise<{ data: Buffer; mimeType: string } | undefined>>();
+
+export function webPhoto(pathname: string): Promise<{ data: Buffer; mimeType: string } | undefined> {
+	let pending = fetchingPhotos.get(pathname);
+	if (!pending) {
+		pending = keptOrFetched(pathname).finally(() => fetchingPhotos.delete(pathname));
+		fetchingPhotos.set(pathname, pending);
+	}
+	return pending;
+}
+
+/**
+ * Fetches and keeps the web photos in some text (a card's context), so they
+ * show at once with it. Waits no longer than waitMs.
+ */
+export async function keepPhotos(text: string, waitMs = 15_000): Promise<void> {
+	const paths = [...new Set(text.match(/\/photos\/[a-f0-9]{24}/g) ?? [])];
+	if (!paths.length) return;
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	await Promise.race([
+		Promise.all(paths.map((p) => webPhoto(p).catch(() => undefined))),
+		new Promise((resolve) => (timer = setTimeout(resolve, waitMs))),
+	]);
+	clearTimeout(timer);
+}
+
+async function keptOrFetched(pathname: string): Promise<{ data: Buffer; mimeType: string } | undefined> {
 	const id = WEB_PHOTO_PATH.exec(pathname)?.[1];
 	const source = id ? index().photos[id] : undefined;
 	if (!id || !source) return undefined;
